@@ -24,6 +24,21 @@ def test_sync_upsert_keeps_manual_edits():
     rows = db.q("SELECT title FROM items")
     assert rows == [{"title": "mine"}]  # edited item untouched, no duplicate row
 
+def test_notion_reads_nested_text():
+    from megamind.connectors import notion
+    notion.time.sleep = lambda s: None
+    rt = lambda x: {"rich_text": [{"plain_text": x}]}
+    tree = {"top": [{"id": "tog", "type": "toggle", "toggle": rt("outer"), "has_children": True},
+                    {"id": "cp", "type": "child_page", "child_page": {}, "has_children": True}],
+            "tog": [{"id": "x", "type": "paragraph", "paragraph": rt("inner"), "has_children": False}]}
+    class R:
+        def __init__(s, d): s.d = d
+        def raise_for_status(s): return s
+        def json(s): return {"results": s.d, "has_more": False}
+    class C:
+        def get(s, url, params): return R(tree[url.split("/")[2]])
+    assert notion.Notion()._blocks(C(), "top") == ["outer", "inner"]
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"): f(); print("ok", n)

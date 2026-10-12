@@ -26,14 +26,22 @@ class Notion:
 
     def _page(self, c, p):
         title = next((_text(v["title"]) for v in p["properties"].values() if v["type"] == "title"), "") or "Untitled"
+        return {"ext_id": p["id"], "title": title, "url": p["url"], "date": p["last_edited_time"],
+                "description": "\n".join(self._blocks(c, p["id"]))}
+
+    def _blocks(self, c, id):
         lines, cursor = [], None
         while True:
             time.sleep(0.35)  # Notion allows ~3 req/s
             params = {"page_size": 100, **({"start_cursor": cursor} if cursor else {})}
-            r = c.get(f"/blocks/{p['id']}/children", params=params).raise_for_status().json()
-            # ponytail: top-level blocks only (no toggles/columns), recurse if content goes missing
-            lines += [_text(b[b["type"]]["rich_text"]) for b in r["results"] if b.get(b["type"], {}).get("rich_text")]
+            r = c.get(f"/blocks/{id}/children", params=params).raise_for_status().json()
+            for b in r["results"]:
+                t = b.get(b["type"], {})
+                if t.get("rich_text"): lines.append(_text(t["rich_text"]))
+                elif b["type"] == "table_row": lines.append(" | ".join(_text(x) for x in t["cells"]))
+                # child pages are synced as their own items, so don't recurse into them
+                if b["has_children"] and b["type"] not in ("child_page", "child_database"):
+                    lines += self._blocks(c, b["id"])
             if not r["has_more"]: break
             cursor = r["next_cursor"]
-        return {"ext_id": p["id"], "title": title, "url": p["url"], "date": p["last_edited_time"],
-                "description": "\n".join(lines)}
+        return lines

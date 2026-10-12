@@ -21,5 +21,5 @@ Re-syncing never duplicates items and never overwrites items you've edited (`edi
 
 ## Credentials
 - **GitHub** `GITHUB_TOKEN`: github.com/settings/tokens, fine-grained token, "All repositories" (or pick some), read-only for Contents, Metadata and Issues/Releases. Classic token with `repo` scope also works.
-- **Notion** `NOTION_TOKEN`: notion.so/profile/integrations, new internal integration, copy the secret. Then on each page or database you want pulled: `...` menu, Connections, add your integration. Only shared pages are synced.
+- **Notion** `NOTION_TOKEN`: notion.so/profile/integrations, new internal integration, copy the secret. Then on each page or database you want pulled: `...` menu, Connections, add your integration. Only shared pages are synced, with all nested text (toggles, columns, tables); sub-pages sync as their own items.
 - **Website** `SITE_URL`: your site root, e.g. `https://example.com`. Uses `/sitemap.xml`, falls back to `/feed.xml` or `SITE_FEED`.
