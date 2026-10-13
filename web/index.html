@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProjectPost</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --mute:#666; --line:#e2e2e2; --ok:#1a7f37; --bad:#c62828; --accent:#2457d6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181d; --fg:#e8e8e8; --mute:#9aa0a6; --line:#2d3139; --ok:#4cc26a; --bad:#ef6b6b; --accent:#7aa2ff; } }
+  body { font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); max-width:960px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:20px; margin:0 0 20px; } h2 { font-size:16px; margin:28px 0 8px; }
+  table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mute); font-weight:500; font-size:13px; }
+  button { font:inherit; padding:4px 12px; border:1px solid var(--line); background:transparent; color:var(--fg); border-radius:6px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  input { font:inherit; padding:6px 10px; border:1px solid var(--line); background:transparent; color:var(--fg); border-radius:6px; width:100%; box-sizing:border-box; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .mute { color:var(--mute); }
+  .item { padding:10px 0; border-bottom:1px solid var(--line); } .item a { color:var(--accent); text-decoration:none; }
+  .tag { display:inline-block; font-size:12px; color:var(--mute); border:1px solid var(--line); border-radius:10px; padding:0 8px; margin-right:4px; }
+</style>
+</head>
+<body>
+<h1>ProjectPost</h1>
+
+<h2>Sync</h2>
+<table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last run</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
+
+<h2>Items</h2>
+<input id="search" placeholder="Search items (text match; semantic search arrives in stage 2)">
+<div id="items"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+
+async function loadSync() {
+  const rows = await (await fetch("/sync")).json();
+  const tb = $("#sync tbody"); tb.replaceChildren();
+  for (const r of rows) {
+    const tr = el("tr");
+    tr.append(el("td", r.source));
+    let status, cls;
+    if (r.disabled) [status, cls] = ["disabled", "mute"];
+    else if (!r.configured) [status, cls] = ["not configured", "mute"];
+    else if (r.ok == null) [status, cls] = ["never run", "mute"];
+    else if (r.ok) [status, cls] = ["ok", "ok"];
+    else [status, cls] = ["error: " + r.error, "bad"];
+    tr.append(el("td", status, cls));
+    tr.append(el("td", r.last_run ? new Date(r.last_run).toLocaleString() : "-"));
+    tr.append(el("td", r.count ?? "-"));
+    const td = el("td"), b = el("button", "Re-sync");
+    b.disabled = r.disabled || !r.configured;
+    b.onclick = async () => { b.disabled = true; b.textContent = "Syncing..."; await fetch("/sync/" + r.source, { method: "POST" }); await loadSync(); loadItems(); };
+    td.append(b); tr.append(td); tb.append(tr);
+  }
+}
+
+async function loadItems() {
+  const s = $("#search").value.trim();
+  const rows = await (await fetch("/items" + (s ? "?search=" + encodeURIComponent(s) : ""))).json();
+  const box = $("#items"); box.replaceChildren();
+  if (!rows.length) box.append(el("p", "No items yet. Add a token in .env and hit Re-sync.", "mute"));
+  for (const it of rows.slice(0, 200)) {
+    const d = el("div", null, "item"), a = el("a", it.title || it.url); if (it.url) a.href = it.url; a.target = "_blank"; a.rel = "noopener";
+    d.append(a, el("span", "  " + it.source + (it.date ? " · " + it.date.slice(0, 10) : ""), "mute"));
+    if (it.description) d.append(el("div", it.description.slice(0, 160), "mute"));
+    const t = el("div"); for (const x of it.tags) t.append(el("span", x, "tag")); d.append(t);
+    box.append(d);
+  }
+}
+
+let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(loadItems, 250); };
+loadSync(); loadItems();
+</script>
+</body>
+</html>

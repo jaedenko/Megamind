@@ -1,6 +1,7 @@
-# Megamind
+# ProjectPost (repo: Megamind)
 
-Pulls your projects from GitHub, Notion and your website into one SQLite DB (stage 1 of 6).
+Turns your projects into LinkedIn/X posts. Built in 6 stages; stage 1 is done: it pulls your projects from GitHub, Notion and your website into one SQLite DB, with a sync page at `/`.
+Tables: `items`, `projects`, `posts`, `corrections`, `settings`, `sync_runs` (posts/corrections/settings are filled by later stages).
 
 ## Setup
 ```
@@ -13,7 +14,7 @@ cp .env.example .env     # fill in the keys you have; blank = skipped
 ```
 python -m megamind.sync            # all configured sources
 python -m megamind.sync github     # just one
-uvicorn megamind.main:app --reload # GET /items, GET /sync, POST /sync[/{source}]  (docs at /docs)
+uvicorn megamind.main:app --reload # open http://127.0.0.1:8000  (API: GET /items, /projects, /sync, POST /sync[/{source}], docs at /docs)
 python test_stage1.py              # self-check
 ```
 Disable a source without touching code: `MEGAMIND_DISABLE=notion,website` in `.env`.

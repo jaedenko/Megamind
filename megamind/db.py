@@ -15,14 +15,22 @@ CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY, name TEXT, summary T
 CREATE TABLE IF NOT EXISTS items(
   id INTEGER PRIMARY KEY, source TEXT NOT NULL, ext_id TEXT NOT NULL, title TEXT, description TEXT,
   date TEXT, url TEXT, media TEXT DEFAULT '[]', tags TEXT DEFAULT '[]',
-  project_id INTEGER REFERENCES projects(id), edited INTEGER DEFAULT 0, UNIQUE(source, ext_id));
+  project_id INTEGER REFERENCES projects(id), edited INTEGER DEFAULT 0, embedding BLOB, UNIQUE(source, ext_id));
 CREATE TABLE IF NOT EXISTS sync_runs(source TEXT, started TEXT, ok INTEGER, count INTEGER, error TEXT);
+CREATE TABLE IF NOT EXISTS posts(
+  id INTEGER PRIMARY KEY, project_id INTEGER REFERENCES projects(id), angle TEXT, body TEXT, x_body TEXT DEFAULT '',
+  status TEXT DEFAULT 'draft',  -- draft | emailed | approved | published | rejected
+  scheduled_for TEXT, published_at TEXT, created TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS corrections(id INTEGER PRIMARY KEY, kind TEXT, item_id INTEGER, project_id INTEGER, note TEXT);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 """
 
 def connect():
     db = sqlite3.connect(os.environ.get("MEGAMIND_DB", "megamind.db"))
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    try: db.execute("ALTER TABLE items ADD COLUMN embedding BLOB")  # DBs created before stage 1b
+    except sqlite3.OperationalError: pass
     return db
 
 def upsert(db, source, it):
@@ -39,6 +47,7 @@ def q(sql, *args):
     db = connect()
     rows = [dict(r) for r in db.execute(sql, args)]
     for r in rows:
+        r.pop("embedding", None)  # raw vectors are for search, not for API output
         for k in ("media", "tags"):
             if k in r: r[k] = json.loads(r[k])
     return rows
