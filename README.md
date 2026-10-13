@@ -29,3 +29,11 @@ Open your Vercel URL, enter the password, click **Re-sync** next to a source. Re
 
 ## Adding a source
 Add `megamind/connectors/yours.py` with `name`, `configured()` and `fetch()`, yielding `{ext_id, title, [type, description, date, url, media[], tags[], metadata{}]}`, then add it to the list in `megamind/connectors/__init__.py`. No schema change needed.
+
+## Status / handoff notes
+- **Done: stage 1** (Postgres, connectors, sync page, password gate). Deployed to Vercel project `megamind` (team `jajaphet02-8025`), auto-deploys on push to `main`. Live URL: https://megamind-jajaphet02-8025.vercel.app/
+- **Next: stage 2** (search with keyword + pgvector, Voyage embeddings with keyword fallback, clustering, projects view). Needs `VOYAGE_API_KEY` and `ANTHROPIC_API_KEY` in Vercel. Stages 3-7 are in the original brief: post studio, email approval loop + Vercel Cron `tick()`, chat panel with tools, Onshape + imports, MCP/REST + LinkedIn/X publishing.
+- Stack: Python/FastAPI single Vercel function (`pyproject.toml` entrypoint `megamind.main:app`, no `api/` dir, no `requirements.txt`). Schema is created lazily in `megamind/db.py`; add the `embedding vector` column there in stage 2 (`CREATE EXTENSION vector`).
+- Vercel has Deployment Protection (Vercel login) on in addition to `APP_PASSWORD`; tools that fetch the site anonymously get a 401 from Vercel.
+- The Vercel project has `SITE1_URL` / `SITE2_URL` set, but the website connector only reads `SITE_URL`. Either use `SITE_URL`, or extend the connector to take several sites.
+- Local test DB recipe (no Docker): `initdb` + `pg_ctl` from `/usr/lib/postgresql/16/bin`, then `DATABASE_URL=... python test_stage1.py`.
