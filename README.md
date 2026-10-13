@@ -1,6 +1,6 @@
 # ProjectPost (repo: Megamind)
 
-Turns your projects into LinkedIn/X posts and keeps everything you've made in one searchable database. Runs entirely on Vercel; you only use a browser. Built in 7 stages; **stage 1 is done**: Postgres, GitHub/Notion/website connectors, and a sync page at `/`.
+Turns your projects into LinkedIn/X posts and keeps everything you've made in one searchable database. Runs entirely on Vercel; you only use a browser. Built in 7 stages; **stages 1-2 are done**: Postgres, GitHub/Notion/website connectors, a sync page at `/`, search (keyword, or by meaning with Voyage) and a projects view.
 
 ## Environment variables
 Set every one in **Vercel dashboard > your project > Settings > Environment Variables**, then **Deployments > ... > Redeploy** so they take effect. Nothing secret lives in the code.
@@ -14,9 +14,10 @@ Set every one in **Vercel dashboard > your project > Settings > Environment Vari
 | `SITE_URL` | for website | Your site root, e.g. `https://example.com`. Reads `/sitemap.xml`, falls back to `/feed.xml` or `SITE_FEED`. |
 | `SITE_FEED` | optional | Full URL of an RSS feed if it isn't `/feed.xml`. |
 | `SITE_MAX_PAGES` | optional | Max website pages per sync (default 50). |
+| `VOYAGE_API_KEY` | optional | dash.voyageai.com > API keys. Turns on search by meaning and the **Group items into projects** button (needs pgvector, which Neon has). Without it, search is keyword-only. Items are embedded at the end of each sync. |
 | `MEGAMIND_DISABLE` | optional | Comma list of sources to switch off, e.g. `notion,website`. |
 
-Leave a source's variable unset to skip it. Variables for later stages (Voyage, Anthropic, email, LinkedIn, X, `CRON_SECRET`) will be added to this table as those stages ship.
+Leave a source's variable unset to skip it. Variables for later stages (Anthropic, email, LinkedIn, X, `CRON_SECRET`) will be added to this table as those stages ship.
 
 ## Deploy
 Push to GitHub; Vercel builds and deploys automatically. The tables are created automatically on the first request.
@@ -32,7 +33,8 @@ Add `megamind/connectors/yours.py` with `name`, `configured()` and `fetch()`, yi
 
 ## Status / handoff notes
 - **Done: stage 1** (Postgres, connectors, sync page, password gate). Deployed to Vercel project `megamind` (team `jajaphet02-8025`), auto-deploys on push to `main`. Live URL: https://megamind-jajaphet02-8025.vercel.app/
-- **Next: stage 2** (search with keyword + pgvector, Voyage embeddings with keyword fallback, clustering, projects view). Needs `VOYAGE_API_KEY` and `ANTHROPIC_API_KEY` in Vercel. Stages 3-7 are in the original brief: post studio, email approval loop + Vercel Cron `tick()`, chat panel with tools, Onshape + imports, MCP/REST + LinkedIn/X publishing.
+- **Done: stage 2** (branch `stage-2`, not yet merged): `megamind/embed.py` (Voyage `voyage-3.5`, 1024-dim, `items.embedding`; greedy clustering into `projects`, threshold `max_dist` 0.35), `/items?search=&project=`, `POST /cluster`, projects view. The pgvector SQL (`<=>`, `avg(vector)`) is only exercised by `test_embed_and_cluster`, which skips on a Postgres without pgvector: run it against a Neon branch before merging. Projects are named after their first item; there is no rename yet.
+- **Next: stage 3+** (post studio needs `ANTHROPIC_API_KEY`), email approval loop + Vercel Cron `tick()`, chat panel with tools, Onshape + imports, MCP/REST + LinkedIn/X publishing (original brief).
 - Stack: Python/FastAPI single Vercel function (`pyproject.toml` entrypoint `megamind.main:app`, no `api/` dir, no `requirements.txt`). Schema is created lazily in `megamind/db.py`; add the `embedding vector` column there in stage 2 (`CREATE EXTENSION vector`).
 - Vercel has Deployment Protection (Vercel login) on in addition to `APP_PASSWORD`; tools that fetch the site anonymously get a 401 from Vercel.
 - The Vercel project has `SITE1_URL` / `SITE2_URL` set, but the website connector only reads `SITE_URL`. Either use `SITE_URL`, or extend the connector to take several sites.

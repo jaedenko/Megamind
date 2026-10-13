@@ -1,4 +1,5 @@
 import os
+from . import embed
 from .db import connect, upsert
 from .connectors import CONNECTORS
 
@@ -20,5 +21,10 @@ def run(source=None):
             err = repr(e)
         db.execute("INSERT INTO sync_runs(source,ok,count,error) VALUES(%s,%s,%s,%s)", (c.name, err is None, n, err))
         out[c.name] = err or n
+    if embed.on():
+        try:
+            out["embeddings"] = embed.pending(db)
+        except Exception as e:  # sync still succeeded; unembedded items are retried next sync
+            out["embeddings"] = repr(e)
     db.close()
     return out

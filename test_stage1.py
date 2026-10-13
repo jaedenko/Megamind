@@ -75,6 +75,32 @@ def test_api_gate_and_endpoints():
     assert c.get("/", headers=ok).status_code == 503  # fails closed
     os.environ["APP_PASSWORD"] = "pw"
 
+def test_search_keyword_fallback_and_project_filter():
+    from fastapi.testclient import TestClient
+    from megamind.main import app
+    c, ok = TestClient(app), {"Authorization": "Basic " + base64.b64encode(b"me:pw").decode()}
+    d = db.connect(); d.execute("INSERT INTO projects(name) VALUES('P')"); d.execute("UPDATE items SET project_id=(SELECT id FROM projects)"); d.commit(); d.close()
+    pid = c.get("/projects", headers=ok).json()[0]["id"]
+    assert len(c.get(f"/items?project={pid}", headers=ok).json()) == 2
+    assert c.get(f"/items?project={pid + 1}", headers=ok).json() == []
+    assert c.get("/items?search=zzzz", headers=ok).json() == []
+    assert c.post("/cluster", headers=ok).status_code == 400  # no VOYAGE_API_KEY
+
+def test_embed_and_cluster():  # needs pgvector (Neon has it); skipped on a plain local Postgres
+    if not db.VECTOR: return print("skip: no pgvector")
+    from megamind import embed
+    vec = lambda *hot: [1.0 if i in hot else 0.0 for i in range(1024)]
+    vs = {"alpha robot": vec(0), "alpha arm": vec(0, 1), "tax notes": vec(5)}
+    embed.embed = lambda texts, kind="document": [vs[t.split("\n")[0]] for t in texts]
+    os.environ["VOYAGE_API_KEY"] = "x"
+    with db.connect() as d:
+        d.execute("DELETE FROM items; DELETE FROM projects")
+        for i, t in enumerate(vs): d.execute("INSERT INTO items(source,ext_id,title) VALUES('t',%s,%s)", (str(i), t))
+        assert embed.pending(d) == 3 and embed.pending(d) == 0
+        assert embed.cluster(d) == {"items_placed": 3, "projects_created": 2}
+        assert d.execute("SELECT count(DISTINCT project_id) AS n FROM items WHERE title LIKE 'alpha%%'").fetchone()["n"] == 1
+    del os.environ["VOYAGE_API_KEY"]
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"): f(); print("ok", n)

@@ -25,8 +25,11 @@
 <h2>Sync</h2>
 <table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last run</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
 
-<h2>Items</h2>
-<input id="search" placeholder="Search items (text match; smarter search arrives in stage 2)">
+<h2>Projects <button id="cluster">Group items into projects</button> <span id="clustermsg" class="mute"></span></h2>
+<div id="projects"></div>
+
+<h2>Items <span id="filter" class="mute"></span></h2>
+<input id="search" placeholder="Search items (by meaning when Voyage is set up, otherwise by keyword)">
 <div id="items"></div>
 
 <script>
@@ -57,7 +60,8 @@ async function loadSync() {
 
 async function loadItems() {
   const s = $("#search").value.trim();
-  const rows = await (await fetch("/items" + (s ? "?search=" + encodeURIComponent(s) : ""))).json();
+  const qs = new URLSearchParams(); if (s) qs.set("search", s); if (project) qs.set("project", project);
+  const rows = await (await fetch("/items?" + qs)).json();
   const box = $("#items"); box.replaceChildren();
   if (!rows.length) box.append(el("p", "No items yet. Add a token in Vercel (Settings > Environment Variables), redeploy, then hit Re-sync.", "mute"));
   for (const it of rows.slice(0, 200)) {
@@ -69,8 +73,25 @@ async function loadItems() {
   }
 }
 
+let project = null;
+async function loadProjects() {
+  const rows = await (await fetch("/projects")).json();
+  const box = $("#projects"); box.replaceChildren();
+  if (!rows.length) box.append(el("p", "No projects yet. After a sync with Voyage set up, click the button above.", "mute"));
+  for (const p of rows) {
+    const b = el("button", p.name + " (" + p.item_count + ")"); b.style.margin = "0 6px 6px 0";
+    b.onclick = () => { project = project === p.id ? null : p.id; $("#filter").textContent = project ? "in " + p.name : ""; loadItems(); };
+    box.append(b);
+  }
+}
+$("#cluster").onclick = async () => {
+  const r = await fetch("/cluster", { method: "POST" }), j = await r.json();
+  $("#clustermsg").textContent = r.ok ? j.items_placed + " items placed, " + j.projects_created + " new projects" : j.detail;
+  loadProjects(); loadItems();
+};
+
 let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(loadItems, 250); };
-loadSync(); loadItems();
+loadSync(); loadProjects(); loadItems();
 </script>
 </body>
 </html>

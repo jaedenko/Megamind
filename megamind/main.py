@@ -1,10 +1,10 @@
 import base64, os, secrets
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
-from . import sync
+from . import embed, sync
 from .connectors import CONNECTORS
-from .db import COLS, q
+from .db import COLS, connect, q
 
 app = FastAPI(title="ProjectPost")
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -39,11 +39,26 @@ def status():
 def run(source: str | None = None):
     return sync.run(source)
 
+@app.post("/cluster")
+def cluster():
+    if not embed.on():
+        raise HTTPException(400, "Needs VOYAGE_API_KEY and pgvector, then a sync to embed items.")
+    with connect() as db:
+        return embed.cluster(db)
+
 @app.get("/items")
-def items(source: str | None = None, search: str | None = None):
-    # ponytail: substring match for now; stage 2 swaps in full-text + semantic search
-    return q(f"SELECT {COLS} FROM items WHERE (%(s)s::text IS NULL OR source=%(s)s) AND (%(p)s::text IS NULL OR title ILIKE %(p)s OR description ILIKE %(p)s) ORDER BY date DESC NULLS LAST LIMIT 500",
-             {"s": source, "p": f"%{search}%" if search else None})
+def items(source: str | None = None, search: str | None = None, project: int | None = None):
+    p = {"s": source, "j": project, "q": search, "like": f"%{search}%" if search else None}
+    where = "(%(s)s::text IS NULL OR source=%(s)s) AND (%(j)s::int IS NULL OR project_id=%(j)s)"
+    if search and embed.on():
+        try:  # meaning-based order; exact keyword hits float to the top, un-embedded items sink
+            p["v"] = str(embed.embed([search], "query")[0])
+            return q(f"SELECT {COLS} FROM items WHERE {where} ORDER BY (fts @@ websearch_to_tsquery('english', %(q)s)) DESC, "
+                     "embedding <=> %(v)s::vector NULLS LAST LIMIT 50", p)
+        except Exception:
+            pass  # Voyage down: fall back to keyword
+    kw = " AND (%(q)s::text IS NULL OR fts @@ websearch_to_tsquery('english', %(q)s) OR title ILIKE %(like)s OR description ILIKE %(like)s)"
+    return q(f"SELECT {COLS} FROM items WHERE {where}{kw} ORDER BY ts_rank(fts, websearch_to_tsquery('english', coalesce(%(q)s,''))) DESC, date DESC NULLS LAST LIMIT 500", p)
 
 @app.get("/projects")
 def projects():
