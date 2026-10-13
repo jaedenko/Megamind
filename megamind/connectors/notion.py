@@ -26,7 +26,7 @@ class Notion:
 
     def _page(self, c, p):
         title = next((_text(v["title"]) for v in p["properties"].values() if v["type"] == "title"), "") or "Untitled"
-        return {"ext_id": p["id"], "title": title, "url": p["url"], "date": p["last_edited_time"],
+        return {"ext_id": p["id"], "type": "page", "title": title, "url": p["url"], "date": p["last_edited_time"],
                 "description": "\n".join(self._blocks(c, p["id"]))}
 
     def _blocks(self, c, id):

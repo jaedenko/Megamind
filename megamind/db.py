@@ -1,53 +1,51 @@
-import json, os, sqlite3
-from pathlib import Path
+import os
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
-def load_env(path=".env"):
-    if Path(path).exists():
-        for line in Path(path).read_text().splitlines():
-            k, _, v = line.partition("=")
-            if v.strip() and not k.startswith("#"):
-                os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
-
-load_env()
-
+# One generic items table: new sources/types fit via `type` + `metadata`, no schema change.
+# Stage 2 adds the pgvector `embedding` column.
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY, name TEXT, summary TEXT DEFAULT '', status TEXT DEFAULT 'active');
+SELECT pg_advisory_xact_lock(7001);  -- parallel cold starts must not race on CREATE
+CREATE TABLE IF NOT EXISTS projects(id SERIAL PRIMARY KEY, name TEXT, summary TEXT DEFAULT '', status TEXT DEFAULT 'active');
 CREATE TABLE IF NOT EXISTS items(
-  id INTEGER PRIMARY KEY, source TEXT NOT NULL, ext_id TEXT NOT NULL, title TEXT, description TEXT,
-  date TEXT, url TEXT, media TEXT DEFAULT '[]', tags TEXT DEFAULT '[]',
-  project_id INTEGER REFERENCES projects(id), edited INTEGER DEFAULT 0, embedding BLOB, UNIQUE(source, ext_id));
-CREATE TABLE IF NOT EXISTS sync_runs(source TEXT, started TEXT, ok INTEGER, count INTEGER, error TEXT);
+  id SERIAL PRIMARY KEY, source TEXT NOT NULL, ext_id TEXT NOT NULL, type TEXT DEFAULT 'item',
+  title TEXT, description TEXT DEFAULT '', date TIMESTAMPTZ, url TEXT,
+  media JSONB DEFAULT '[]', tags TEXT[] DEFAULT '{}', metadata JSONB DEFAULT '{}',
+  project_id INT REFERENCES projects(id) ON DELETE SET NULL, edited BOOLEAN DEFAULT false,
+  fts TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,''))) STORED,
+  UNIQUE(source, ext_id));
+CREATE INDEX IF NOT EXISTS items_fts ON items USING gin(fts);
+CREATE TABLE IF NOT EXISTS sync_runs(source TEXT, started TIMESTAMPTZ DEFAULT now(), ok BOOLEAN, count INT, error TEXT);
 CREATE TABLE IF NOT EXISTS posts(
-  id INTEGER PRIMARY KEY, project_id INTEGER REFERENCES projects(id), angle TEXT, body TEXT, x_body TEXT DEFAULT '',
+  id SERIAL PRIMARY KEY, project_id INT REFERENCES projects(id) ON DELETE SET NULL, angle TEXT, body TEXT, x_body TEXT DEFAULT '',
   status TEXT DEFAULT 'draft',  -- draft | emailed | approved | published | rejected
-  scheduled_for TEXT, published_at TEXT, created TEXT DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS corrections(id INTEGER PRIMARY KEY, kind TEXT, item_id INTEGER, project_id INTEGER, note TEXT);
+  scheduled_for TIMESTAMPTZ, published_at TIMESTAMPTZ, created TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS corrections(id SERIAL PRIMARY KEY, kind TEXT, item_id INT, project_id INT, note TEXT);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 """
+COLS = "id, source, type, title, description, date, url, media, tags, metadata, project_id, edited"
+_ready = False
 
 def connect():
-    db = sqlite3.connect(os.environ.get("MEGAMIND_DB", "megamind.db"))
-    db.row_factory = sqlite3.Row
-    db.executescript(SCHEMA)
-    try: db.execute("ALTER TABLE items ADD COLUMN embedding BLOB")  # DBs created before stage 1b
-    except sqlite3.OperationalError: pass
+    global _ready
+    # Vercel's Neon integration sets DATABASE_URL (and POSTGRES_URL). prepare_threshold=None keeps Neon's pooler happy.
+    db = psycopg.connect(os.environ.get("DATABASE_URL") or os.environ["POSTGRES_URL"],
+                         row_factory=dict_row, prepare_threshold=None)
+    if not _ready:
+        db.execute(SCHEMA); db.commit(); _ready = True
     return db
 
 def upsert(db, source, it):
     # re-sync refreshes content but never touches project_id or items you edited by hand
     db.execute(
-        """INSERT INTO items(source,ext_id,title,description,date,url,media,tags) VALUES(?,?,?,?,?,?,?,?)
-           ON CONFLICT(source,ext_id) DO UPDATE SET title=excluded.title, description=excluded.description,
-             date=excluded.date, url=excluded.url, media=excluded.media, tags=excluded.tags
-           WHERE items.edited=0""",
-        (source, it["ext_id"], it["title"], it.get("description", ""), it.get("date"), it.get("url"),
-         json.dumps(it.get("media", [])), json.dumps(it.get("tags", []))))
+        """INSERT INTO items(source,ext_id,type,title,description,date,url,media,tags,metadata) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT(source,ext_id) DO UPDATE SET type=excluded.type, title=excluded.title, description=excluded.description,
+             date=excluded.date, url=excluded.url, media=excluded.media, tags=excluded.tags, metadata=excluded.metadata
+           WHERE NOT items.edited""",
+        (source, it["ext_id"], it.get("type", "item"), it["title"], it.get("description", ""), it.get("date"), it.get("url"),
+         Jsonb(it.get("media", [])), it.get("tags", []), Jsonb(it.get("metadata", {}))))
 
-def q(sql, *args):
-    db = connect()
-    rows = [dict(r) for r in db.execute(sql, args)]
-    for r in rows:
-        r.pop("embedding", None)  # raw vectors are for search, not for API output
-        for k in ("media", "tags"):
-            if k in r: r[k] = json.loads(r[k])
-    return rows
+def q(sql, params=None):
+    with connect() as db:
+        return db.execute(sql, params).fetchall()

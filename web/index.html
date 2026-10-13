@@ -26,7 +26,7 @@
 <table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last run</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
 
 <h2>Items</h2>
-<input id="search" placeholder="Search items (text match; semantic search arrives in stage 2)">
+<input id="search" placeholder="Search items (text match; smarter search arrives in stage 2)">
 <div id="items"></div>
 
 <script>
@@ -59,7 +59,7 @@ async function loadItems() {
   const s = $("#search").value.trim();
   const rows = await (await fetch("/items" + (s ? "?search=" + encodeURIComponent(s) : ""))).json();
   const box = $("#items"); box.replaceChildren();
-  if (!rows.length) box.append(el("p", "No items yet. Add a token in .env and hit Re-sync.", "mute"));
+  if (!rows.length) box.append(el("p", "No items yet. Add a token in Vercel (Settings > Environment Variables), redeploy, then hit Re-sync.", "mute"));
   for (const it of rows.slice(0, 200)) {
     const d = el("div", null, "item"), a = el("a", it.title || it.url); if (it.url) a.href = it.url; a.target = "_blank"; a.rel = "noopener";
     d.append(a, el("span", "  " + it.source + (it.date ? " · " + it.date.slice(0, 10) : ""), "mute"));

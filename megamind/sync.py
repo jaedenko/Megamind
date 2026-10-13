@@ -1,9 +1,10 @@
-import datetime as dt, json, os, sys
+import os
 from .db import connect, upsert
 from .connectors import CONNECTORS
 
 def run(source=None):
     db, out = connect(), {}
+    db.autocommit = True  # each item commits alone: one bad row can't poison or discard the rest
     off = os.environ.get("MEGAMIND_DISABLE", "").split(",")
     for c in CONNECTORS:
         if source and c.name != source:
@@ -17,11 +18,7 @@ def run(source=None):
                 upsert(db, c.name, it); n += 1
         except Exception as e:
             err = repr(e)
-        db.execute("INSERT INTO sync_runs VALUES(?,?,?,?,?)",
-                   (c.name, dt.datetime.now(dt.UTC).isoformat(timespec="seconds"), err is None, n, err))
-        db.commit()
+        db.execute("INSERT INTO sync_runs(source,ok,count,error) VALUES(%s,%s,%s,%s)", (c.name, err is None, n, err))
         out[c.name] = err or n
+    db.close()
     return out
-
-if __name__ == "__main__":
-    print(json.dumps(run(*sys.argv[1:2]), indent=2))

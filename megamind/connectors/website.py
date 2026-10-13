@@ -60,5 +60,5 @@ class Website:
                 if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
                     continue
                 title, text, img = extract(r.text)
-                yield {"ext_id": url, "title": title or url, "description": text, "date": date, "url": url,
+                yield {"ext_id": url, "type": "page", "title": title or url, "description": text, "date": date, "url": url,
                        "media": [img] if img else []}

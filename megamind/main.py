@@ -1,13 +1,27 @@
-import os
+import base64, os, secrets
 from pathlib import Path
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, PlainTextResponse
 from . import sync
 from .connectors import CONNECTORS
-from .db import q
+from .db import COLS, q
 
 app = FastAPI(title="ProjectPost")
 WEB = Path(__file__).resolve().parent.parent / "web"
+
+@app.middleware("http")
+async def password_gate(request: Request, call_next):
+    # the app holds your data and will post for you, so it never serves without APP_PASSWORD (browser login popup, any username)
+    pw = os.environ.get("APP_PASSWORD")
+    if not pw:
+        return PlainTextResponse("Set APP_PASSWORD in Vercel > Settings > Environment Variables, then redeploy.", 503)
+    try:
+        given = base64.b64decode(request.headers.get("authorization", "")[6:]).decode().partition(":")[2]
+    except Exception:
+        given = ""
+    if not secrets.compare_digest(given.encode(), pw.encode()):
+        return PlainTextResponse("Login required", 401, {"WWW-Authenticate": 'Basic realm="ProjectPost"'})
+    return await call_next(request)
 
 @app.get("/")
 def home():
@@ -15,7 +29,7 @@ def home():
 
 @app.get("/sync")
 def status():
-    last = {r["source"]: r for r in q("SELECT source, MAX(started) AS last_run, ok, count, error FROM sync_runs GROUP BY source")}
+    last = {r["source"]: r for r in q("SELECT DISTINCT ON (source) source, started AS last_run, ok, count, error FROM sync_runs ORDER BY source, started DESC")}
     off = os.environ.get("MEGAMIND_DISABLE", "").split(",")
     return [{"source": c.name, "configured": c.configured(), "disabled": c.name in off,
              **{k: last.get(c.name, {}).get(k) for k in ("last_run", "ok", "count", "error")}} for c in CONNECTORS]
@@ -27,8 +41,9 @@ def run(source: str | None = None):
 
 @app.get("/items")
 def items(source: str | None = None, search: str | None = None):
-    return q("SELECT * FROM items WHERE (? IS NULL OR source=?) AND (? IS NULL OR title LIKE '%'||?||'%' OR description LIKE '%'||?||'%') ORDER BY date DESC",
-             source, source, search, search, search)
+    # ponytail: substring match for now; stage 2 swaps in full-text + semantic search
+    return q(f"SELECT {COLS} FROM items WHERE (%(s)s::text IS NULL OR source=%(s)s) AND (%(p)s::text IS NULL OR title ILIKE %(p)s OR description ILIKE %(p)s) ORDER BY date DESC NULLS LAST LIMIT 500",
+             {"s": source, "p": f"%{search}%" if search else None})
 
 @app.get("/projects")
 def projects():
