@@ -1,12 +1,12 @@
 import base64, os, secrets
 from pathlib import Path
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
-from . import cluster, sync
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse
+from . import cluster, embed, sync
 from .connectors import CONNECTORS
-from .db import COLS, q
+from .db import COLS, connect, q, set_ignored
 
-app = FastAPI(title="ProjectPost")
+app = FastAPI(title="Megamind")
 WEB = Path(__file__).resolve().parent.parent / "web"
 
 @app.middleware("http")
@@ -20,7 +20,7 @@ async def password_gate(request: Request, call_next):
     except Exception:
         given = ""
     if not secrets.compare_digest(given.encode(), pw.encode()):
-        return PlainTextResponse("Login required", 401, {"WWW-Authenticate": 'Basic realm="ProjectPost"'})
+        return PlainTextResponse("Login required", 401, {"WWW-Authenticate": 'Basic realm="Megamind"'})
     return await call_next(request)
 
 @app.get("/")
@@ -39,26 +39,46 @@ def status():
 def run(source: str | None = None):
     return sync.run(source)
 
+@app.post("/cluster")
+def group():
+    if cluster.on():  # a model names and summarises the projects
+        try:
+            return cluster.run()
+        except Exception as e:
+            if not embed.on():
+                raise HTTPException(502, f"Grouping model call failed: {e!r}")
+    if embed.on():  # no model (or it failed): nearest-project matching, projects named after their first item
+        with connect() as db:
+            return embed.cluster(db)
+    raise HTTPException(400, "Set OPENCODE_API_KEY + LLM_MODEL (or ANTHROPIC_API_KEY), or VOYAGE_API_KEY, in Vercel, redeploy, then try again.")
+
 @app.get("/items")
-def items(source: str | None = None, search: str | None = None, project_id: int | None = None):
-    # ponytail: substring match is plenty at ~100s of items; the fts column is there when it isn't
-    return q(f"SELECT {COLS} FROM items WHERE (%(s)s::text IS NULL OR source=%(s)s) AND (%(j)s::int IS NULL OR project_id=%(j)s) AND (%(p)s::text IS NULL OR title ILIKE %(p)s OR description ILIKE %(p)s) ORDER BY date DESC NULLS LAST LIMIT 500",
-             {"s": source, "j": project_id, "p": f"%{search}%" if search else None})
+def items(source: str | None = None, search: str | None = None, project: int | None = None, ignored: bool = False):
+    p = {"s": source, "j": project, "ig": ignored, "q": search, "like": f"%{search}%" if search else None}
+    where = "(%(s)s::text IS NULL OR source=%(s)s) AND (%(j)s::int IS NULL OR project_id=%(j)s) AND (ignored IS TRUE) = %(ig)s"
+    if search and embed.on():
+        try:  # meaning-based order; exact keyword hits float to the top, un-embedded items sink
+            p["v"] = str(embed.embed([search], "query")[0])
+            return q(f"SELECT {COLS} FROM items WHERE {where} ORDER BY (fts @@ websearch_to_tsquery('english', %(q)s)) DESC, "
+                     "embedding <=> %(v)s::vector NULLS LAST LIMIT 50", p)
+        except Exception:
+            pass  # Voyage down: fall back to keyword
+    kw = " AND (%(q)s::text IS NULL OR fts @@ websearch_to_tsquery('english', %(q)s) OR title ILIKE %(like)s OR description ILIKE %(like)s)"
+    return q(f"SELECT {COLS} FROM items WHERE {where}{kw} ORDER BY ts_rank(fts, websearch_to_tsquery('english', coalesce(%(q)s,''))) DESC, date DESC NULLS LAST LIMIT 500", p)
 
 @app.get("/projects")
 def projects():
-    return q("SELECT p.*, COUNT(i.id) AS item_count, MAX(i.date) AS last_activity FROM projects p LEFT JOIN items i ON i.project_id=p.id GROUP BY p.id")
-
-@app.post("/cluster")
-def group():
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return JSONResponse({"error": "Set ANTHROPIC_API_KEY in Vercel > Settings > Environment Variables, then redeploy."}, 503)
-    return cluster.run()
+    return q("SELECT p.*, COUNT(i.id) AS item_count, MAX(i.date) AS last_activity FROM projects p LEFT JOIN items i ON i.project_id=p.id AND i.ignored IS NOT TRUE GROUP BY p.id ORDER BY p.id")
 
 @app.patch("/items/{id}")
-def move(id: int, body: dict):  # {"project_id": 3 | null}; a manual move is never overwritten by clustering (it only fills NULLs)
-    return q("UPDATE items SET project_id=%s WHERE id=%s RETURNING id, project_id", (body.get("project_id"), id))
+def edit_item(id: int, body: dict):  # {"project_id": 3 | null} and/or {"ignored": true | false}; clustering only fills empty project_ids, so moves stick
+    with connect() as db:
+        if "project_id" in body:
+            db.execute("UPDATE items SET project_id=%s WHERE id=%s", (body["project_id"], id))
+        if "ignored" in body:
+            set_ignored(db, id, bool(body["ignored"]))
+    return {"ok": True}
 
 @app.patch("/projects/{id}")
-def rename(id: int, body: dict):
+def rename_project(id: int, body: dict):
     return q("UPDATE projects SET name=coalesce(%s,name), summary=coalesce(%s,summary) WHERE id=%s RETURNING *", (body.get("name"), body.get("summary"), id))

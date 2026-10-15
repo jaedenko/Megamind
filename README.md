@@ -1,6 +1,6 @@
-# ProjectPost (repo: Megamind)
+# Megamind
 
-Turns your projects into LinkedIn/X posts and keeps everything you've made in one searchable database. Runs entirely on Vercel; you only use a browser. Built in 7 stages; **stages 1-2 are done**: Postgres, GitHub/Notion/website connectors, a sync page, and AI grouping of items into projects.
+Turns your projects into LinkedIn/X posts and keeps everything you've made in one searchable database. Runs entirely on Vercel; you only use a browser. Built in 7 stages; **stages 1-2 are done**: Postgres, GitHub/Notion/website connectors, a sync page, search, and grouping of items into projects.
 
 ## Environment variables
 Set every one in **Vercel dashboard > your project > Settings > Environment Variables**, then **Deployments > ... > Redeploy** so they take effect. Nothing secret lives in the code.
@@ -14,11 +14,12 @@ Set every one in **Vercel dashboard > your project > Settings > Environment Vari
 | `SITE_URL`, `SITE1_URL`, `SITE2_URL`... | for website | Site roots, e.g. `https://example.com`; any `SITE<n>_URL` is read. Reads `/sitemap.xml`, falls back to `/feed.xml` or `SITE_FEED`. |
 | `SITE_FEED` | optional | Full URL of an RSS feed if it isn't `/feed.xml`. |
 | `SITE_MAX_PAGES` | optional | Max website pages per sync (default 50). |
-| `ANTHROPIC_API_KEY` | for grouping | console.anthropic.com > API keys. Used by the **Group items into projects** button. |
-| `CLUSTER_MODEL` | optional | Model id for grouping (default `claude-sonnet-5-5`). |
+| `OPENCODE_API_KEY` + `LLM_MODEL` | for AI grouping (option A) | Sign in at opencode.ai/auth, add billing (Zen) or subscribe (Go), copy the key. `LLM_MODEL` is a model id from https://opencode.ai/zen/v1/models (Go: https://opencode.ai/zen/go/v1/models). Optional `OPENCODE_BASE_URL` (default `https://opencode.ai/zen/v1`; use `https://opencode.ai/zen/go/v1` for Go). |
+| `ANTHROPIC_API_KEY` | for AI grouping (option B) | console.anthropic.com > API keys. Used only if `OPENCODE_API_KEY` is not set. `LLM_MODEL` optional (default `claude-sonnet-5-5`). |
+| `VOYAGE_API_KEY` | optional | dash.voyageai.com. Meaning-based search, plus a no-LLM way to group items. Needs the pgvector extension (Neon has it). |
 | `MEGAMIND_DISABLE` | optional | Comma list of sources to switch off, e.g. `notion,website`. |
 
-Leave a source's variable unset to skip it. Variables for later stages (Voyage, Anthropic, email, LinkedIn, X, `CRON_SECRET`) will be added to this table as those stages ship.
+Leave a source's variable unset to skip it. Variables for later stages (email, LinkedIn, X, `CRON_SECRET`) will be added to this table as those stages ship.
 
 ## Deploy
 Push to GitHub; Vercel builds and deploys automatically. The tables are created automatically on the first request.
@@ -26,16 +27,20 @@ Push to GitHub; Vercel builds and deploys automatically. The tables are created 
 ## Using it
 Open your Vercel URL, enter the password, click **Re-sync** next to a source. Re-syncing never duplicates items and never overwrites items you've edited (`edited = true`) or their project. A sync runs inside one request, so it is capped at 5 minutes; if it hits the cap, the items saved so far are kept (the run just won't show as finished).
 
+- **Group items into projects**: with an LLM key, a model names and summarises projects; otherwise (Voyage only) items are matched to the nearest project and projects are named after their first item. Either way it only fills items that have no project yet, so manual moves (dropdown on each item) and renames stick.
+- **Ignore / Restore**: every item has an Ignore button; **Show ignored** lists them with Restore. Ignored items disappear from search, grouping and embeddings and are never re-added by a sync. Ignoring a Notion page also ignores everything nested under it (and restoring brings it back).
+- **Notion ignore list**: pages titled `Tasks` or `College packing list` (and everything under them, including rows of a database with that name) are ignored automatically after each sync. The list lives in the `settings` table (`key = 'ignore_titles'`, titles separated by `|`); change it there. It is applied once per new item, so your Restore/Ignore clicks always win.
+
 ## Tests (for development)
-`DATABASE_URL=<throwaway postgres> python test_stage1.py` (wipes that database's `public` schema).
+`DATABASE_URL=<throwaway postgres> python test_stage1.py` (wipes that database's `public` schema). One test needs pgvector and is skipped on a plain Postgres.
 
 ## Adding a source
 Add `megamind/connectors/yours.py` with `name`, `configured()` and `fetch()`, yielding `{ext_id, title, [type, description, date, url, media[], tags[], metadata{}]}`, then add it to the list in `megamind/connectors/__init__.py`. No schema change needed.
 
 ## Status / handoff notes
 - **Done: stages 1-2.** Deployed to Vercel project `megamind` (team `jajaphet02-8025`), auto-deploys on push to `main`. Live URL: https://megamind-jajaphet02-8025.vercel.app/
-- Stage 2 is deliberately lazy: one Claude call groups unassigned items into projects (`megamind/cluster.py`), search stays substring, no pgvector/Voyage. It only fills items with no project, so manual moves (dropdown on each item) and renames stick. Upgrade to embeddings when items pass ~1000 or grouping gets noisy.
-- **Next: stage 3** (post studio: pick a project + angle, Claude drafts LinkedIn and X versions into `posts`). Then email approval + Vercel Cron, chat panel, Onshape/imports, publishing.
-- Stack: Python/FastAPI single Vercel function (`pyproject.toml` entrypoint `megamind.main:app`, no `api/` dir, no `requirements.txt`). Schema is created lazily in `megamind/db.py`; add the `embedding vector` column there in stage 2 (`CREATE EXTENSION vector`).
+- Stage 2 = Voyage embeddings + hybrid search (`megamind/embed.py`, optional) + LLM grouping (`megamind/cluster.py`, optional). `POST /cluster` prefers the LLM, falls back to embeddings if the model call fails or no LLM key is set.
+- **Next: stage 3** (post studio: pick a project + angle, the same LLM call drafts LinkedIn and X versions into `posts`; nothing posts without approval). Then email approval + Vercel Cron, chat panel, Onshape/imports, publishing.
+- Stack: Python/FastAPI single Vercel function (`pyproject.toml` entrypoint `megamind.main:app`, no `api/` dir, no `requirements.txt`). Schema is created lazily in `megamind/db.py`.
 - Vercel has Deployment Protection (Vercel login) on in addition to `APP_PASSWORD`; tools that fetch the site anonymously get a 401 from Vercel.
-- Local test DB recipe (no Docker): `initdb` + `pg_ctl` from `/usr/lib/postgresql/16/bin`, then `DATABASE_URL=... python test_stage1.py`.
+- Local test DB recipe (no Docker): `pip install pgserver` (bundles Postgres + pgvector), or `initdb` + `pg_ctl` from `/usr/lib/postgresql/16/bin`, then `DATABASE_URL=... python test_stage1.py`.
