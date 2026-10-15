@@ -25,8 +25,11 @@
 <h2>Sync</h2>
 <table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last run</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
 
+<h2>Projects <button id="group">Group items into projects</button> <span id="gmsg" class="mute"></span></h2>
+<div id="projects"></div>
+
 <h2>Items</h2>
-<input id="search" placeholder="Search items (text match; smarter search arrives in stage 2)">
+<input id="search" placeholder="Search items">
 <div id="items"></div>
 
 <script>
@@ -50,27 +53,56 @@ async function loadSync() {
     tr.append(el("td", r.count ?? "-"));
     const td = el("td"), b = el("button", "Re-sync");
     b.disabled = r.disabled || !r.configured;
-    b.onclick = async () => { b.disabled = true; b.textContent = "Syncing..."; await fetch("/sync/" + r.source, { method: "POST" }); await loadSync(); loadItems(); };
+    b.onclick = async () => { b.disabled = true; b.textContent = "Syncing..."; await fetch("/sync/" + r.source, { method: "POST" }); await loadSync(); loadProjects().then(loadItems); };
     td.append(b); tr.append(td); tb.append(tr);
   }
 }
 
+let projs = [], cur = null;  // cur = project id being filtered, null = all
+
+async function loadProjects() {
+  projs = await (await fetch("/projects")).json();
+  const box = $("#projects"); box.replaceChildren();
+  const chip = (label, id) => { const b = el("button", label); if (id === cur) b.style.borderColor = "var(--accent)"; b.onclick = () => { cur = id; loadProjects(); loadItems(); }; return b; };
+  box.append(chip("All", null));
+  for (const p of projs) box.append(" ", chip(`${p.name} (${p.item_count})`, p.id));
+  const p = projs.find((x) => x.id === cur);
+  if (p) {
+    const d = el("div", p.summary, "mute"), r = el("button", "Rename");
+    r.onclick = async () => { const n = prompt("Project name", p.name); if (n) { await fetch("/projects/" + p.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: n }) }); loadProjects(); } };
+    box.append(d, r);
+  }
+}
+
+$("#group").onclick = async (e) => {
+  e.target.disabled = true; $("#gmsg").textContent = "Grouping...";
+  const r = await fetch("/cluster", { method: "POST" }), j = await r.json();
+  $("#gmsg").textContent = r.ok ? `${j.new_projects} new projects, ${j.assigned} items assigned` : j.error || "failed";
+  e.target.disabled = false; loadProjects(); loadItems();
+};
+
 async function loadItems() {
   const s = $("#search").value.trim();
-  const rows = await (await fetch("/items" + (s ? "?search=" + encodeURIComponent(s) : ""))).json();
+  const qs = new URLSearchParams(); if (s) qs.set("search", s); if (cur != null) qs.set("project_id", cur);
+  const rows = await (await fetch("/items?" + qs)).json();
   const box = $("#items"); box.replaceChildren();
   if (!rows.length) box.append(el("p", "No items yet. Add a token in Vercel (Settings > Environment Variables), redeploy, then hit Re-sync.", "mute"));
   for (const it of rows.slice(0, 200)) {
     const d = el("div", null, "item"), a = el("a", it.title || it.url); if (it.url) a.href = it.url; a.target = "_blank"; a.rel = "noopener";
     d.append(a, el("span", "  " + it.source + (it.date ? " · " + it.date.slice(0, 10) : ""), "mute"));
     if (it.description) d.append(el("div", it.description.slice(0, 160), "mute"));
-    const t = el("div"); for (const x of it.tags) t.append(el("span", x, "tag")); d.append(t);
+    const t = el("div"); for (const x of it.tags) t.append(el("span", x, "tag"));
+    const sel = el("select"); sel.append(new Option("no project", ""));
+    for (const p of projs) sel.append(new Option(p.name, p.id));
+    sel.value = it.project_id ?? "";
+    sel.onchange = async () => { await fetch("/items/" + it.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: sel.value ? +sel.value : null }) }); loadProjects(); };
+    t.append(sel); d.append(t);
     box.append(d);
   }
 }
 
 let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(loadItems, 250); };
-loadSync(); loadItems();
+loadSync(); loadProjects().then(loadItems);
 </script>
 </body>
 </html>

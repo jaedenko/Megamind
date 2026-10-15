@@ -1,4 +1,4 @@
-import os
+import os, re
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from xml.etree import ElementTree as ET
@@ -43,22 +43,25 @@ class Website:
     name = "website"
 
     def configured(self):
-        return bool(os.environ.get("SITE_URL"))
+        return bool(self._bases())
+
+    def _bases(self):  # SITE_URL, SITE1_URL, SITE2_URL, ... one per site
+        return [v.rstrip("/") for k, v in sorted(os.environ.items()) if re.fullmatch(r"SITE\d*_URL", k) and v]
 
     def fetch(self):
-        base = os.environ["SITE_URL"].rstrip("/")
         cap = int(os.environ.get("SITE_MAX_PAGES", 50))
         with httpx.Client(follow_redirects=True, timeout=30) as c:
-            rows = []
-            for feed in (base + "/sitemap.xml", os.environ.get("SITE_FEED") or base + "/feed.xml"):
-                r = c.get(feed)
-                if r.status_code == 200:
-                    rows = [x for x in _rows(r.content) if x[0]]
-                    if rows: break
-            for url, date in rows[:cap]:
-                r = c.get(url)
-                if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
-                    continue
-                title, text, img = extract(r.text)
-                yield {"ext_id": url, "type": "page", "title": title or url, "description": text, "date": date, "url": url,
-                       "media": [img] if img else []}
+            for base in self._bases():
+                rows = []
+                for feed in (base + "/sitemap.xml", os.environ.get("SITE_FEED") or base + "/feed.xml"):
+                    r = c.get(feed)
+                    if r.status_code == 200:
+                        rows = [x for x in _rows(r.content) if x[0]]
+                        if rows: break
+                for url, date in rows[:cap]:
+                    r = c.get(url)
+                    if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
+                        continue
+                    title, text, img = extract(r.text)
+                    yield {"ext_id": url, "type": "page", "title": title or url, "description": text, "date": date, "url": url,
+                           "media": [img] if img else []}

@@ -59,6 +59,24 @@ def test_schema_has_generic_columns_and_fulltext():
     assert {"items", "projects", "posts", "corrections", "settings", "sync_runs"} <= names
     assert db.q("SELECT id FROM items WHERE fts @@ websearch_to_tsquery('english','mine')")  # title of the edited item above
 
+def test_cluster_parse_trusts_only_ids_we_sent():
+    from megamind.cluster import parse
+    reply = 'sure! {"projects":[{"id":9,"name":"Gripper","summary":"s","items":[1,2,99,"x",[3]]},{"id":null,"name":"Ghost","items":[99]},{"id":2,"name":"Old","items":[3]}]}'
+    # 99 wasn't sent, id 9 isn't a known project (-> new), Ghost has no valid items (dropped), id 2 is known (reused)
+    assert parse(reply, {1, 2, 3}, {2}) == [(None, "Gripper", "s", [1, 2]), (2, "Old", "", [3])]
+
+def test_cluster_fills_only_unassigned():
+    from megamind import cluster
+    d = db.connect(); mine = d.execute("INSERT INTO projects(name) VALUES('Mine') RETURNING id").fetchone()["id"]
+    ids = [d.execute("INSERT INTO items(source,ext_id,title,project_id) VALUES('t',%s,%s,%s) RETURNING id", (n, n, mine if n == "c" else None)).fetchone()["id"] for n in "abc"]
+    d.commit(); d.close()
+    cluster.ask = lambda prompt: '{"projects":[{"id":null,"name":"New","summary":"","items":%s}]}' % ids  # also tries to grab the manual one
+    assert cluster.run() == {"new_projects": 1, "assigned": 2}
+    got = [r["project_id"] for r in db.q("SELECT project_id FROM items WHERE source='t' ORDER BY id")]
+    assert got[0] == got[1] != mine and got[2] == mine  # manual assignment survives
+    assert cluster.run() == {"new_projects": 0, "assigned": 0}  # nothing unassigned -> no model call
+    d = db.connect(); d.execute("DELETE FROM items WHERE source='t'"); d.execute("DELETE FROM projects"); d.commit(); d.close()  # later tests expect none
+
 def test_api_gate_and_endpoints():
     from fastapi.testclient import TestClient
     from megamind.main import app

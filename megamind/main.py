@@ -1,8 +1,8 @@
 import base64, os, secrets
 from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, PlainTextResponse
-from . import sync
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from . import cluster, sync
 from .connectors import CONNECTORS
 from .db import COLS, q
 
@@ -40,11 +40,25 @@ def run(source: str | None = None):
     return sync.run(source)
 
 @app.get("/items")
-def items(source: str | None = None, search: str | None = None):
-    # ponytail: substring match for now; stage 2 swaps in full-text + semantic search
-    return q(f"SELECT {COLS} FROM items WHERE (%(s)s::text IS NULL OR source=%(s)s) AND (%(p)s::text IS NULL OR title ILIKE %(p)s OR description ILIKE %(p)s) ORDER BY date DESC NULLS LAST LIMIT 500",
-             {"s": source, "p": f"%{search}%" if search else None})
+def items(source: str | None = None, search: str | None = None, project_id: int | None = None):
+    # ponytail: substring match is plenty at ~100s of items; the fts column is there when it isn't
+    return q(f"SELECT {COLS} FROM items WHERE (%(s)s::text IS NULL OR source=%(s)s) AND (%(j)s::int IS NULL OR project_id=%(j)s) AND (%(p)s::text IS NULL OR title ILIKE %(p)s OR description ILIKE %(p)s) ORDER BY date DESC NULLS LAST LIMIT 500",
+             {"s": source, "j": project_id, "p": f"%{search}%" if search else None})
 
 @app.get("/projects")
 def projects():
     return q("SELECT p.*, COUNT(i.id) AS item_count, MAX(i.date) AS last_activity FROM projects p LEFT JOIN items i ON i.project_id=p.id GROUP BY p.id")
+
+@app.post("/cluster")
+def group():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return JSONResponse({"error": "Set ANTHROPIC_API_KEY in Vercel > Settings > Environment Variables, then redeploy."}, 503)
+    return cluster.run()
+
+@app.patch("/items/{id}")
+def move(id: int, body: dict):  # {"project_id": 3 | null}; a manual move is never overwritten by clustering (it only fills NULLs)
+    return q("UPDATE items SET project_id=%s WHERE id=%s RETURNING id, project_id", (body.get("project_id"), id))
+
+@app.patch("/projects/{id}")
+def rename(id: int, body: dict):
+    return q("UPDATE projects SET name=coalesce(%s,name), summary=coalesce(%s,summary) WHERE id=%s RETURNING *", (body.get("name"), body.get("summary"), id))
