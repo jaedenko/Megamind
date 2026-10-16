@@ -5,11 +5,9 @@ from . import config, llm, mail, social
 from .db import connect
 
 LI_MAX = 3000
+X_LIMIT = 280  # X posts are never sent by Megamind: you copy the X text from the email, so this is only a length hint
 APPROVE = {"y", "yes", "yep", "yeah", "ok", "okay", "approve", "approved", "lgtm", "post", "post it", "ship it", "send it", "go", "go ahead"}
 DECLINE = {"n", "no", "nope", "nah"}
-
-def xmax(cfg):
-    return int(cfg("X_MAX_CHARS", 280))
 
 def classify(text):
     """Approval is deliberately strict: the whole reply must be a bare yes / thumbs-up. 'yes but shorten it' is feedback, not approval."""
@@ -26,7 +24,7 @@ def _ctx(db, project_id):
 
 def _rules(cfg):
     return (f"Write in first person as the builder, plain and specific, no hype, no hashtag spam. LinkedIn post: under 1500 characters. "
-            f"X post: at most {xmax(cfg) - 10} characters and NO links (links make X posts cost far more). Reply with JSON only: "
+            f"X post: at most {X_LIMIT - 10} characters and no links. Reply with JSON only: "
             '{"linkedin": "...", "x": "..."}')
 
 def pick_project(db):
@@ -43,14 +41,14 @@ def _texts(raw):
 
 def _email(db, cfg, post):
     p, _ = _ctx(db, post["project_id"]) if post["project_id"] else ({"name": "(project removed)"}, [])
-    lim, over = xmax(cfg), len(post["x_body"]) > xmax(cfg)
+    lim, over = X_LIMIT, len(post["x_body"]) > X_LIMIT
     n = post["revisions"] + 1
     body = (f"Megamind draft #{post['id']}, version {n}. Project: {p['name']}\n\n=== LinkedIn ({len(post['body'])}/{LI_MAX}) ===\n{post['body']}\n\n"
-            f"=== X ({len(post['x_body'])}/{lim}){'  <-- OVER THE LIMIT, shorten it before approving' if over else ''} ===\n{post['x_body']}\n\n"
+            f"=== X post (you copy and paste this one yourself) ({len(post['x_body'])}/{lim}){'  <-- OVER THE LIMIT, ask me to shorten it' if over else ''} ===\n{post['x_body']}\n\n"
             "----------------------------------------\nReply to this email:\n"
-            "  Y (or a thumbs-up)  ->  post both now\n  N                    ->  I'll write a fresh version\n"
+            "  Y (or a thumbs-up)  ->  post the LinkedIn post now (I'll email you the X text again to paste)\n  N                    ->  I'll write a fresh version\n"
             "  anything else        ->  your edit notes (\"shorter\", \"lead with the results\"), or paste a complete replacement and I'll use it\n"
-            "Nothing is posted until you reply Y.\n")
+            "Nothing is posted until you reply Y. I never post to X; that one is yours to paste.\n")
     last = next((h["id"] for h in reversed(post["history"]) if h["t"] == "sent"), None)
     mid = mail.send(cfg, f"[Megamind post-{post['id']}-{post['token']}] {p['name']}: version {n}", body, last)
     db.execute("UPDATE posts SET status='emailed', error=NULL, history = history || %s::jsonb WHERE id=%s", (json.dumps([{"t": "sent", "id": mid}]), post["id"]))
@@ -80,28 +78,33 @@ def revise(db, cfg, post, feedback):
     return db.execute("SELECT * FROM posts WHERE id=%s", (post["id"],)).fetchone()
 
 def post_now(db, cfg, post):
-    """Only ever called for status='approved'. Each platform is recorded the moment it succeeds, so a retry never double-posts."""
-    if len(post["x_body"]) > xmax(cfg) or len(post["body"]) > LI_MAX:  # your Y can't make a too-long post valid: back to you
-        db.execute("UPDATE posts SET status='emailed' WHERE id=%s", (post["id"],))
-        post = db.execute("SELECT * FROM posts WHERE id=%s", (post["id"],)).fetchone()
-        db.execute("UPDATE posts SET history = history || %s::jsonb WHERE id=%s", (json.dumps([{"t": "reply", "text": "(approved, but a draft is over the length limit)"}]), post["id"]))
-        _email(db, cfg, post); return "too long"
-    res, errs = dict(post["result"]), []
-    for name, ready, send, text in (("x", social.x_ready, social.post_x, post["x_body"]), ("linkedin", social.linkedin_ready, social.post_linkedin, post["body"])):
-        if name in res: continue
-        if not ready(cfg): res[name] = {"skipped": "not configured"}
+    """Only ever called for status='approved'. Posts the LinkedIn text, then emails you the X text to paste yourself (Megamind never posts to X)."""
+    if len(post["body"]) > LI_MAX:  # your Y can't make a too-long post valid: back to you
+        db.execute("UPDATE posts SET status='emailed', history = history || %s::jsonb WHERE id=%s",
+                   (json.dumps([{"t": "reply", "text": "(approved, but the LinkedIn post is over its length limit)"}]), post["id"]))
+        _email(db, cfg, db.execute("SELECT * FROM posts WHERE id=%s", (post["id"],)).fetchone()); return "too long"
+    res, err = dict(post["result"]), None
+    if "linkedin" not in res:
+        if not social.linkedin_ready(cfg): res["linkedin"] = {"skipped": "LinkedIn is not connected"}
         else:
-            try: res[name] = {"url": send(cfg, text)}
-            except Exception as e: errs.append(f"{name}: {e!r}"[:300])
-        if name in res: db.execute("UPDATE posts SET result=%s::jsonb WHERE id=%s", (json.dumps(res), post["id"]))
-    done = not errs and any("url" in v for v in res.values())
-    db.execute("UPDATE posts SET status=%s, error=%s, published_at=CASE WHEN %s THEN now() ELSE published_at END WHERE id=%s",
-               ("published" if done else "approved", "; ".join(errs) or (None if done else "no platform is set up"), done, post["id"]))
-    if done and mail.configured(cfg):
-        lines = "\n".join(f"{k}: {v.get('url') or v.get('skipped')}" for k, v in res.items())
-        try: mail.send(cfg, f"[Megamind post-{post['id']}-{post['token']}] Posted", f"Posted.\n\n{lines}\n")
+            try: res["linkedin"] = {"url": social.post_linkedin(cfg, post["body"])}
+            except Exception as e: err = f"LinkedIn: {e!r}"[:300]
+        if "linkedin" in res: db.execute("UPDATE posts SET result=%s::jsonb WHERE id=%s", (json.dumps(res), post["id"]))
+    tag = f"[Megamind post-{post['id']}-{post['token']}]"
+    if err:  # keep retrying each check; tell the owner once (an expired token is the usual cause)
+        db.execute("UPDATE posts SET error=%s WHERE id=%s", (err, post["id"]))
+        if not post["error"] and mail.configured(cfg):
+            try: mail.send(cfg, f"{tag} LinkedIn did not accept the post",
+                           f"LinkedIn refused the post: {err}\n\nThe usual cause is an expired token (they last about 60 days). Paste a new one in Megamind > Settings > LinkedIn and I'll retry automatically.\n\nX post, in case you want it now:\n{post['x_body']}\n")
+            except Exception: pass
+        return "retry"
+    db.execute("UPDATE posts SET status='published', error=NULL, published_at=now() WHERE id=%s", (post["id"],))
+    if mail.configured(cfg):
+        li = res["linkedin"].get("url") or res["linkedin"]["skipped"]
+        try: mail.send(cfg, f"{tag} Done: LinkedIn is posted, X text inside",
+                       f"LinkedIn: {li}\n\nHere is your X post to copy and paste:\n\n{post['x_body']}\n")
         except Exception: pass
-    return "published" if done else "retry"
+    return "published"
 
 def _own(post, msg_id):
     return any(h["t"] == "sent" and h["id"] == msg_id for h in post["history"])

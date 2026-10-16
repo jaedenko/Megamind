@@ -5,7 +5,6 @@ from .db import connect
 # The page wins, so keys can be rotated without a redeploy. Value = is it a secret (never sent back to the browser).
 FIELDS = {"LLM_PROVIDER": False, "LLM_BASE_URL": False, "LLM_MODEL": False, "LLM_API_KEY": True,
           "MAIL_USER": False, "MAIL_PASSWORD": True, "MAIL_TO": False, "SMTP_HOST": False, "IMAP_HOST": False,
-          "X_API_KEY": True, "X_API_SECRET": True, "X_ACCESS_TOKEN": True, "X_ACCESS_SECRET": True,
           "LINKEDIN_ACCESS_TOKEN": True}
 
 def load():

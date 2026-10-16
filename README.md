@@ -1,6 +1,6 @@
 # Megamind
 
-Turns your projects into LinkedIn/X posts and keeps everything you've made in one searchable database. Runs entirely on Vercel; you only use a browser. Built in 7 stages; **stages 1-5 are done**: Postgres, GitHub/Notion/website connectors, search, grouping into projects, scheduled drafts, email approval, and posting to X and LinkedIn.
+Turns your projects into LinkedIn/X posts (it posts to LinkedIn; you paste the X one) and keeps everything you've made in one searchable database. Runs entirely on Vercel; you only use a browser. Built in 7 stages; **stages 1-5 are done**: Postgres, GitHub/Notion/website connectors, search, grouping into projects, scheduled drafts, email approval, and posting to LinkedIn (the X post is emailed to you to paste).
 
 ## Environment variables
 Set every one in **Vercel dashboard > your project > Settings > Environment Variables**, then **Deployments > ... > Redeploy** so they take effect. Nothing secret lives in the code.
@@ -22,7 +22,6 @@ Set every one in **Vercel dashboard > your project > Settings > Environment Vari
 |---|---|
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | Any provider: openai, anthropic, openrouter, groq, together, deepseek, mistral, xai, gemini, opencode, opencode-go, or `custom` plus `LLM_BASE_URL` for any OpenAI-compatible server. The older `OPENCODE_API_KEY` / `ANTHROPIC_API_KEY` env vars still work. |
 | `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_TO` | The mailbox Megamind sends drafts from and reads replies in. Gmail: turn on 2-step verification, then Google Account > Security > App passwords. `MAIL_TO` is you (defaults to `MAIL_USER`, i.e. you email yourself). Optional `SMTP_HOST` / `IMAP_HOST` for non-Gmail. |
-| `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` | developer.x.com > your app > Keys and tokens; the app needs Read and Write. X's API is pay-per-use (credits): about $0.015 per post, $0.20 if it contains a link, so drafts avoid links. Optional `X_MAX_CHARS` (default 280). |
 | `LINKEDIN_ACCESS_TOKEN` | linkedin.com/developers > your app > Products: add "Share on LinkedIn" and "Sign In with LinkedIn using OpenID Connect", then Auth > OAuth token generator with scopes `openid profile w_member_social`. Tokens last about 60 days; paste the new one in Settings when it expires. Optional `LINKEDIN_VERSION` (YYYYMM, default 202608). |
 
 | `VOYAGE_API_KEY` | optional | dash.voyageai.com. Meaning-based search, plus a no-LLM way to group items. Needs the pgvector extension (Neon has it). |
@@ -42,10 +41,10 @@ Open your Vercel URL, enter the password, click **Re-sync** next to a source. Re
 
 ## Scheduled posts and email approval
 1. In **Posts**, schedule a post (pick a project or auto-pick, a date/time, optional repeat every N days), or click **Draft and email me now**.
-2. When it is due, Megamind writes a LinkedIn post and a short X post and emails them to you.
-3. Reply to that email: **Y** (or a thumbs-up, alone) posts both; **N** asks for a fresh version; **anything else** is feedback, or paste a complete replacement and it is used. Each reply produces a new email. This repeats until you reply Y. Nothing is ever posted without a bare Y; "yes but shorten it" counts as feedback.
+2. When it is due, Megamind writes a LinkedIn post and a short X post and emails both to you.
+3. Reply to that email: **Y** (or a thumbs-up, alone) posts the LinkedIn post and emails you the X text to copy and paste; **N** asks for a fresh version; **anything else** is feedback, or paste a complete replacement and it is used. Each reply produces a new email. This repeats until you reply Y. Nothing is ever posted without a bare Y; "yes but shorten it" counts as feedback.
 4. Replies are only accepted from `MAIL_TO`, and only if they carry the secret tag in the subject line (keep the subject when replying).
-5. If one platform fails (e.g. X out of credits) the other is posted once and only the failed one is retried on the next check.
+5. Megamind never posts to X: there is no X API key to set up. If LinkedIn rejects a post (usually an expired token) you get one email and it retries on every check until you paste a new token in Settings.
 
 **The page.** Four tabs: *Start here* (setup checklist), *My work* (sources, projects, items), *Posts* (write now, schedule, approvals) and *Settings* (each integration has a Save button, a Test button where a free test exists, and step-by-step "Where do I get these?" help).
 

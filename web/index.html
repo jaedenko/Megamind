@@ -48,7 +48,7 @@
 <body>
 <header>
   <h1>Megamind</h1>
-  <p class="mute">Turns your projects into LinkedIn and X posts, emails you each draft, and only posts after you say yes.</p>
+  <p class="mute">Turns your projects into a LinkedIn post and an X post, emails you both, and posts to LinkedIn only after you say yes. You paste the X post yourself.</p>
 </header>
 <nav id="tabs">
   <button data-tab="start">Start here</button><button data-tab="library">My work</button><button data-tab="posts">Posts</button><button data-tab="settings">Settings</button>
@@ -62,7 +62,7 @@
       <div><b>1. Collect</b>Megamind reads your GitHub, Notion and website.</div>
       <div><b>2. Group</b>It sorts everything into your projects.</div>
       <div><b>3. Schedule</b>You pick when to post. On that day it writes a draft.</div>
-      <div><b>4. Approve</b>The draft arrives by email. Reply <b style="display:inline">Y</b> to post, or reply with changes.</div>
+      <div><b>4. Approve</b>The draft arrives by email. Reply <b style="display:inline">Y</b> to post to LinkedIn, or reply with changes.</div>
     </div>
   </div>
   <div class="card">
@@ -97,7 +97,7 @@
 <section id="tab-posts">
   <div class="card">
     <h2>Write a post</h2>
-    <p class="hint">Megamind writes a LinkedIn post and a short X post and emails them to you. Reply <b>Y</b> (or a thumbs-up) to publish both, <b>N</b> for a fresh try, or reply with changes, or paste your own full version. It repeats until you say Y. <b>Nothing is ever posted without your Y.</b></p>
+    <p class="hint">Megamind writes a LinkedIn post and a short X post and emails both to you. Reply <b>Y</b> (or a thumbs-up) to publish the LinkedIn post, <b>N</b> for a fresh try, or reply with changes, or paste your own full version. It repeats until you say Y. After you approve, you get one more email with the X post, ready to copy and paste. <b>Nothing is ever posted without your Y, and Megamind never posts to X.</b></p>
     <div class="row">
       <div><label for="dProject">About which project?</label><select id="dProject" style="width:100%"></select></div>
       <div><label for="dAngle">Anything to emphasise? (optional)</label><input id="dAngle" placeholder="e.g. what I learned about the gripper"></div>
@@ -156,8 +156,7 @@ async function loadStatus() {
     [s.projects > 0, "Sort it into projects", s.projects > 0 ? s.projects + " projects" : "Press \"Sort items into projects\" on the My work tab.", "My work", "library"],
     [s.ai, "Connect an AI", s.ai ? "Connected" : "Needed to write your drafts. Any provider works (Gemini, OpenAI, Anthropic and more).", "Set up", "settings"],
     [s.email, "Connect your email", s.email ? "Connected" : "Needed so Megamind can email you drafts and read your replies.", "Set up", "settings"],
-    [s.x, "Connect X (optional)", s.x ? "Connected" : "Skip this if you only want LinkedIn.", "Set up", "settings"],
-    [s.linkedin, "Connect LinkedIn (optional)", s.linkedin ? "Connected" : "Skip this if you only want X.", "Set up", "settings"],
+    [s.linkedin, "Connect LinkedIn (optional)", s.linkedin ? "Connected" : "Without it, you still get both posts by email to copy and paste.", "Set up", "settings"],
     [fresh, "Turn on automatic checking", fresh ? "Last check " + ago(s.last_check) : "Megamind has to check for your email replies regularly. It takes two minutes to turn on.", "How", "settings"],
     [s.scheduled > 0 || s.posted > 0, "Schedule your first post", s.posted > 0 ? s.posted + " posted so far" : s.scheduled > 0 ? s.scheduled + " scheduled" : "Pick a project and a day on the Posts tab.", "Schedule", "posts"],
   ];
@@ -254,7 +253,7 @@ async function loadPosts() {
     const [label, cls] = LABEL[p.status] || [p.status, ""], d = el("div", null, "item");
     d.append(el("b", (p.project || "Post") + " "), el("span", label, "tag " + cls), el("span", p.revisions ? "version " + (p.revisions + 1) + "  " : "", "mute"), el("span", when(p.created), "mute"));
     d.append(el("div", p.body.slice(0, 240) + (p.body.length > 240 ? "..." : ""), "hint"));
-    for (const [k, v] of Object.entries(p.result || {})) { const a = el("a", v.url ? "View on " + (k === "x" ? "X" : "LinkedIn") : (k === "x" ? "X" : "LinkedIn") + ": " + v.skipped); if (v.url) { a.href = v.url; a.target = "_blank"; a.rel = "noopener"; } d.append(a, " "); }
+    for (const [k, v] of Object.entries(p.result || {})) { const a = el("a", v.url ? "View on LinkedIn" : "LinkedIn: " + v.skipped); if (v.url) { a.href = v.url; a.target = "_blank"; a.rel = "noopener"; } d.append(a, " "); }
     if (p.error) d.append(el("div", "Problem: " + p.error, "bad"));
     if (["draft", "emailed", "approved"].includes(p.status)) { const b = el("button", "Discard", "small"); b.onclick = async () => { await post(`/posts/${p.id}/discard`); loadPosts(); }; d.append(b); }
     box.append(d);
@@ -299,21 +298,15 @@ const CARDS = [
       <li>Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>, name it "Megamind", click <b>Create</b>, and copy the 16-letter code (spaces don't matter).</li>
       <li>Paste your Gmail address and that code here. Press <b>Save</b>, then <b>Test</b> and look for the test email.</li>
       <li>When you get a draft, just hit <b>Reply</b> and type <b>Y</b>. Keep the subject line as it is, it is how Megamind knows which draft you mean.</li></ol>` },
-  { title: "X (Twitter)", intro: "Lets Megamind post to your X account after you approve a draft. X charges per post (about 1.5 cents; 20 cents if a post contains a link, so drafts never include links).",
-    fields: { X_API_KEY: ["API Key", ""], X_API_SECRET: ["API Key Secret", ""], X_ACCESS_TOKEN: ["Access Token", ""], X_ACCESS_SECRET: ["Access Token Secret", ""] },
-    help: `<ol><li>Go to <a href="https://console.x.com" target="_blank" rel="noopener">console.x.com</a>, sign in with the X account you want to post from, and accept the developer terms.</li>
-      <li>Open <b>Apps</b> and click <b>Create App</b>. Give it any name.</li>
-      <li>In the app's settings find <b>User authentication settings</b> and click <b>Set up</b>. Set permissions to <b>Read and write</b>, type to <b>Web App, Automated App or Bot</b>, and put any web address (like your website) in the callback and website boxes. Save.</li>
-      <li>Open the app's <b>Keys and tokens</b>: copy the <b>API Key</b> and <b>API Key Secret</b>, then click <b>Generate</b> next to <b>Access Token</b> and copy the <b>Access Token</b> and <b>Secret</b>. They are only shown once.</li>
-      <li>Important: create the Access Token <i>after</i> setting Read and write. If you changed permissions later, generate a new one, or posting will fail.</li>
-      <li>Buy a few dollars of credit in the console's billing section. Without credit, X refuses to post.</li></ol>` },
-  { title: "LinkedIn", test: "linkedin", intro: "Lets Megamind post to your own LinkedIn profile after you approve a draft. LinkedIn tokens expire after about 60 days, so you paste a new one then.",
-    fields: { LINKEDIN_ACCESS_TOKEN: ["Access token", ""] },
-    help: `<ol><li>Go to <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">linkedin.com/developers/apps</a> and click <b>Create app</b>. LinkedIn asks for a Company Page to attach it to. Any page you manage works, or make a quick one. You still post as yourself.</li>
-      <li>Open the app's <b>Settings</b> tab and click <b>Verify</b> next to the page (a page admin confirms with a link).</li>
-      <li>On the <b>Products</b> tab, request <b>Share on LinkedIn</b> and <b>Sign In with LinkedIn using OpenID Connect</b>. Both are normally approved instantly.</li>
-      <li>Open the <a href="https://www.linkedin.com/developers/tools/oauth" target="_blank" rel="noopener">OAuth token generator</a>, choose your app, tick <b>openid</b>, <b>profile</b> and <b>w_member_social</b>, click <b>Request access token</b>, and allow it.</li>
-      <li>Copy the token it shows, paste it here, press <b>Save</b>, then <b>Test</b>.</li></ol>` },
+  { title: "LinkedIn", test: "linkedin", intro: "Lets Megamind post to your own LinkedIn profile after you approve a draft. The token expires after about 60 days. When it does, Megamind emails you and you paste a new one.",
+    fields: { LINKEDIN_ACCESS_TOKEN: ["Access token", "A long string of letters and numbers."] },
+    help: `<ol><li><b>Create the app.</b> Go to <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">linkedin.com/developers/apps</a> and click <b>Create app</b>. Name it "Megamind". LinkedIn asks for a Company Page to attach it to: pick any page you manage, or click <b>Create a new LinkedIn Page</b> for a quick one (name it anything). Add any logo, tick the legal box, click <b>Create app</b>. You still post as yourself, not as the page.</li>
+      <li><b>Verify the app.</b> Open the app's <b>Settings</b> tab, click <b>Verify</b> next to your page, and click <b>Generate URL</b>. Open that link while signed in as an admin of the page, and confirm. Come back and refresh; it should say verified.</li>
+      <li><b>Add the two products.</b> Open the <b>Products</b> tab. Click <b>Request access</b> on <b>Share on LinkedIn</b> and on <b>Sign In with LinkedIn using OpenID Connect</b>. Tick the terms. Both usually turn on right away. If one says "pending", wait and refresh.</li>
+      <li><b>Generate the token.</b> Open <a href="https://www.linkedin.com/developers/tools/oauth" target="_blank" rel="noopener">linkedin.com/developers/tools/oauth</a> and click <b>Create a new access token</b>. Choose your Megamind app. Tick the scopes <b>openid</b>, <b>profile</b> and <b>w_member_social</b> (also <b>email</b> if you like). If <b>w_member_social</b> is missing, step 3 isn't finished. Click <b>Request access token</b>, then <b>Allow</b> on the LinkedIn page.</li>
+      <li><b>Copy it.</b> LinkedIn shows the access token and its expiry date. Copy the whole token (it is very long) and paste it into the box here. Press <b>Save</b>, then <b>Test</b>. It should say "Connected as" followed by your name.</li>
+      <li><b>If the generator complains about a redirect address,</b> open the app's <b>Auth</b> tab, find <b>OAuth 2.0 settings</b>, and add <code>https://www.linkedin.com/developers/tools/oauth/redirect</code> as an authorized redirect URL, then try again.</li>
+      <li><b>If posting later fails with "403",</b> the token was made before a product was approved. Generate a new one after both products show as added.</li></ol>` },
   { title: "Automatic checking", intro: "Megamind needs to look at your inbox for replies and see which posts are due. A free timer service can poke Megamind every few minutes.",
     custom: "checking" },
 ];

@@ -148,7 +148,7 @@ def setup_status(request: Request):
     with connect() as db:
         lt = db.execute("SELECT value FROM settings WHERE key='last_tick'").fetchone()
     return {"items": one("SELECT count(*) AS n FROM items WHERE ignored IS NOT TRUE")["n"], "projects": one("SELECT count(*) AS n FROM projects")["n"],
-            "ai": llm.on(cfg), "email": mail.configured(cfg), "x": social.x_ready(cfg), "linkedin": social.linkedin_ready(cfg),
+            "ai": llm.on(cfg), "email": mail.configured(cfg), "linkedin": social.linkedin_ready(cfg),
             "last_check": lt["value"] if lt else None, "daily_only_cron": True,
             "check_url": f"{base}cron/tick?key={config.cron_key()}",
             "scheduled": one("SELECT count(*) AS n FROM schedules WHERE active")["n"], "posted": one("SELECT count(*) AS n FROM posts WHERE status='published'")["n"]}

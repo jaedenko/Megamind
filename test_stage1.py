@@ -107,15 +107,15 @@ def test_llm_works_with_any_provider_key():
 
 def test_config_page_beats_env_and_secrets_stay_hidden():
     from megamind import config
-    os.environ["X_API_KEY"] = "from-env"
-    assert config.load()("X_API_KEY") == "from-env" and config.status()["X_API_KEY"] == {"secret": True, "source": "env", "set": True, "value": None}
-    config.save({"X_API_KEY": "from-page", "MAIL_TO": "me@x.com", "LLM_MODEL": ""})  # "" = untouched form field
-    assert config.load()("X_API_KEY") == "from-page" and config.status()["MAIL_TO"]["value"] == "me@x.com"
+    os.environ["LINKEDIN_ACCESS_TOKEN"] = "from-env"
+    assert config.load()("LINKEDIN_ACCESS_TOKEN") == "from-env" and config.status()["LINKEDIN_ACCESS_TOKEN"] == {"secret": True, "source": "env", "set": True, "value": None}
+    config.save({"LINKEDIN_ACCESS_TOKEN": "from-page", "MAIL_TO": "me@x.com", "LLM_MODEL": ""})  # "" = untouched form field
+    assert config.load()("LINKEDIN_ACCESS_TOKEN") == "from-page" and config.status()["MAIL_TO"]["value"] == "me@x.com"
     assert "from-page" not in str(config.status()) and config.status()["LLM_MODEL"]["set"] is False
     try: config.save({"NOT_A_SETTING": "x"}); assert False
     except KeyError: pass
-    config.save({"X_API_KEY": None, "MAIL_TO": None}); del os.environ["X_API_KEY"]
-    assert config.load()("X_API_KEY") is None
+    config.save({"LINKEDIN_ACCESS_TOKEN": None, "MAIL_TO": None}); del os.environ["LINKEDIN_ACCESS_TOKEN"]
+    assert config.load()("LINKEDIN_ACCESS_TOKEN") is None
 
 def test_ignore_rules_cascade_buttons_and_restore():
     from fastapi.testclient import TestClient
@@ -204,30 +204,21 @@ def test_embed_and_cluster():  # needs pgvector (Neon has it); skipped on a plai
         assert d.execute("SELECT count(DISTINCT project_id) AS n FROM items WHERE title LIKE 'alpha%%'").fetchone()["n"] == 1
     del os.environ["VOYAGE_API_KEY"]
 
-def test_oauth1_signature_matches_twitters_documented_example():
-    from megamind.social import oauth1
-    h = oauth1("POST", "https://api.twitter.com/1.1/statuses/update.json", "xvz1evFS4wEEPTGEFPHBog", "kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw",
-               "370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb", "LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE",
-               extra={"include_entities": "true", "status": "Hello Ladies + Gentlemen, a signed OAuth request!"},
-               nonce="kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg", ts="1318622958")
-    assert 'oauth_signature="hCtSmYh%2BiHYCEqBWrE7C7hYmtUk%3D"' in h
-
-def test_social_requests_have_the_right_shape():
+def test_linkedin_request_has_the_right_shape():
     from megamind import social
     seen = []
     class R:
         status_code, text = 201, ""
         def __init__(s, j=None, h=None): s.j, s.headers = j or {}, h or {}
         def json(s): return s.j
-    social.httpx.post = lambda url, **kw: (seen.append(("POST", url, kw)), R({"data": {"id": "99"}}, {"x-restli-id": "urn:li:share:7"}))[1]
+    social.httpx.post = lambda url, **kw: (seen.append(("POST", url, kw)), R({}, {"x-restli-id": "urn:li:share:7"}))[1]
     social.httpx.get = lambda url, **kw: (seen.append(("GET", url, kw)), R({"sub": "abc123"}))[1]
-    cfg = {"X_API_KEY": "a", "X_API_SECRET": "b", "X_ACCESS_TOKEN": "c", "X_ACCESS_SECRET": "d", "LINKEDIN_ACCESS_TOKEN": "tok"}.get
-    assert social.post_x(cfg, "hi") == "https://x.com/i/web/status/99"
-    _, url, kw = seen[-1]; assert url == "https://api.x.com/2/tweets" and kw["json"] == {"text": "hi"} and kw["headers"]["Authorization"].startswith("OAuth ")
+    cfg = {"LINKEDIN_ACCESS_TOKEN": "tok"}.get
     assert social.post_linkedin(cfg, "a_b #1 (x)") == "https://www.linkedin.com/feed/update/urn:li:share:7/"
     _, url, kw = seen[-1]
     assert url == "https://api.linkedin.com/rest/posts" and kw["json"]["author"] == "urn:li:person:abc123" and kw["json"]["commentary"] == "a\\_b \\#1 \\(x\\)"
     assert kw["headers"]["Authorization"] == "Bearer tok" and kw["headers"]["X-Restli-Protocol-Version"] == "2.0.0" and kw["headers"]["LinkedIn-Version"]
+    assert not hasattr(social, "post_x")  # Megamind never posts to X
 
 def test_reply_text_and_approval_are_strict():
     from megamind.mail import reply_text
@@ -286,7 +277,7 @@ def test_full_email_approval_loop():
         d.execute("DELETE FROM posts; DELETE FROM schedules; DELETE FROM items; DELETE FROM projects")
         pid = d.execute("INSERT INTO projects(name) VALUES('Gripper') RETURNING id").fetchone()["id"]
         for i, t in enumerate(("Built a gripper", "Tested it")): d.execute("INSERT INTO items(source,ext_id,title,project_id) VALUES('t',%s,%s,%s)", (str(i), t, pid))
-    for k, v in {"MAIL_USER": "me@x.com", "MAIL_PASSWORD": "pw", "X_API_KEY": "1", "X_API_SECRET": "2", "X_ACCESS_TOKEN": "3", "X_ACCESS_SECRET": "4", "LINKEDIN_ACCESS_TOKEN": "5"}.items(): os.environ[k] = v
+    for k, v in {"MAIL_USER": "me@x.com", "MAIL_PASSWORD": "pw", "LINKEDIN_ACCESS_TOKEN": "5"}.items(): os.environ[k] = v
     state = {"x_len": 20}
     def fake_llm(prompt, cfg=None):
         if "THE OWNER'S REPLY" in prompt:
@@ -300,18 +291,17 @@ def test_full_email_approval_loop():
         for m in list(inbox):
             if handle(m): inbox.remove(m)
     mail.poll = fake_poll
-    social.post_x = lambda cfg, text: (calls.append(("x", text)), "https://x.com/1")[1]
     social.post_linkedin = lambda cfg, text: (calls.append(("li", text)), "https://li.com/1")[1]
     row = lambda: db.q("SELECT * FROM posts ORDER BY id DESC LIMIT 1")[0]
-    def reply(text, frm="me@x.com", token=None, subj=None):
+    def reply(text, frm="me@x.com", token=None):
         tag = re.search(r"\[Megamind post-\d+-[a-z0-9]+\]", sent[-1][0])[0]
         if token: tag = re.sub(r"-[a-z0-9]+\]", f"-{token}]", tag)
-        inbox.append({"message_id": f"<r{len(inbox)}{len(sent)}@t>", "from": frm, "subject": subj or f"Re: {tag} Gripper: version 1", "refs": "", "text": text})
+        inbox.append({"message_id": f"<r{len(inbox)}{len(sent)}@t>", "from": frm, "subject": f"Re: {tag} Gripper: version 1", "refs": "", "text": text})
         return posts.tick()
 
     with db.connect() as d: d.execute("INSERT INTO schedules(project_id, next_run) VALUES(%s, now() - interval '1 minute')", (pid,))
     assert posts.tick()["drafted"] == 1
-    assert row()["status"] == "emailed" and len(sent) == 1 and "LI v1" in sent[0][1] and "Nothing is posted until you reply Y" in sent[0][1] and calls == []
+    assert row()["status"] == "emailed" and len(sent) == 1 and "LI v1" in sent[0][1] and "you copy and paste this one yourself" in sent[0][1] and calls == []
     assert posts.tick()["drafted"] == 0 and len(sent) == 1  # a one-off schedule fires once
     reply("Y", frm="stranger@evil.com"); reply("Y", token="wrongtoken")
     assert row()["status"] == "emailed" and calls == []  # wrong sender / wrong secret tag: ignored
@@ -327,30 +317,31 @@ def test_full_email_approval_loop():
     assert len(sent) == 5 and calls == []  # N = fresh version, still waiting
     reply("Y\n\nOn Thu, Oct 15, 2026 at 3:04 PM Me <me@x.com> wrote:\n> LI revised")
     p = row()
-    assert p["status"] == "published" and sorted(calls) == [("li", "LI revised"), ("x", "x v2")] and set(p["result"]) == {"x", "linkedin"}
-    assert "Posted" in sent[-1][0]
+    assert p["status"] == "published" and calls == [("li", p["body"])] and p["result"] == {"linkedin": {"url": "https://li.com/1"}}
+    assert "X text inside" in sent[-1][0] and "x v2" in sent[-1][1] and "https://li.com/1" in sent[-1][1]  # the X text arrives by email, ready to paste
     n = len(calls); posts.tick(); reply("Y")
     assert len(calls) == n  # nothing posts twice
 
     def new_draft(angle):  # same as the app: an autocommit connection
         d = db.connect(); d.autocommit = True; posts.draft(d, config.load(), pid, angle); d.close()
     new_draft("angle")
-    def boom(cfg, text): raise RuntimeError("402 no credits")
-    social.post_x = boom; calls.clear()
+    def boom(cfg, text): raise RuntimeError("401 token expired")
+    social.post_linkedin = boom; calls.clear(); before = len(sent)
     reply("Y")
-    p = row()
-    assert p["status"] == "approved" and "x:" in p["error"] and [c[0] for c in calls] == ["li"]
-    social.post_x = lambda cfg, text: (calls.append(("x", text)), "https://x.com/2")[1]
+    p = row(); assert "LinkedIn" in p["error"] and "expired" in sent[-1][1]
+    assert p["status"] == "approved" and len(sent) == before + 1 and "did not accept" in sent[-1][0]  # you are told once
+    posts.tick(); assert len(sent) == before + 1  # not emailed again on every retry
+    social.post_linkedin = lambda cfg, text: (calls.append(("li", text)), "https://li.com/2")[1]
     out = posts.tick()
-    assert row()["status"] == "published" and [c[0] for c in calls] == ["li", "x"] and out["posted"] == 1  # only the failed platform is retried
+    assert row()["status"] == "published" and len(calls) == 1 and out["posted"] == 1 and "https://li.com/2" in sent[-1][1]  # a new token fixes it, posted once
 
-    state["x_len"] = 400; new_draft(""); calls.clear()
-    assert "OVER THE LIMIT" in sent[-1][1]
+    new_draft("x"); calls.clear(); del os.environ["LINKEDIN_ACCESS_TOKEN"]  # LinkedIn not connected: you still get the text
     reply("Y")
-    assert calls == [] and row()["status"] == "emailed" and "OVER THE LIMIT" in sent[-1][1]  # a Y can't post an over-length draft
+    assert calls == [] and row()["status"] == "published" and "not connected" in sent[-1][1] and "X post" in sent[-1][1]
+    state["x_len"] = 400; new_draft("long"); assert "OVER THE LIMIT" in sent[-1][1]  # only a hint: X is yours to paste
 
     with db.connect() as d: d.execute("DELETE FROM posts; DELETE FROM schedules; DELETE FROM items; DELETE FROM projects")
-    for k in ("MAIL_USER", "MAIL_PASSWORD", "X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET", "LINKEDIN_ACCESS_TOKEN"): del os.environ[k]
+    for k in ("MAIL_USER", "MAIL_PASSWORD"): del os.environ[k]
 
 def test_cron_endpoint_auth_and_settings_and_posts_endpoints():
     from fastapi.testclient import TestClient
@@ -363,7 +354,7 @@ def test_cron_endpoint_auth_and_settings_and_posts_endpoints():
     assert c.get("/sync", headers={"Authorization": "Bearer s3cret"}).status_code == 401  # the cron secret opens only /cron/tick
     del os.environ["CRON_SECRET"]
     st = c.get("/status", headers=ok).json()  # feeds the Start-here checklist
-    assert st["ai"] is False and st["email"] is False and st["last_check"] is not None and st["items"] == 0 and "/cron/tick?key=" in st["check_url"]
+    assert st["ai"] is False and st["email"] is False and "x" not in st and st["last_check"] is not None and st["items"] == 0 and "/cron/tick?key=" in st["check_url"]
     key = st["check_url"].split("key=")[1]
     assert c.get(f"/cron/tick?key={key}").status_code == 200 and c.get("/cron/tick?key=wrong").status_code == 401  # the private link works without the password
     assert c.get(f"/sync?key={key}").status_code == 401
