@@ -1,3 +1,13 @@
 {
-  "functions": { "megamind/main.py": { "maxDuration": 300 } }
+  "functions": {
+    "megamind/main.py": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/cron/tick",
+      "schedule": "0 14 * * *"
+    }
+  ]
 }

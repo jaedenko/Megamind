@@ -26,6 +26,22 @@
 <h2>Sync</h2>
 <table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last run</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
 
+<h2>Posts <button id="tick">Check now</button> <span id="tickmsg" class="mute"></span></h2>
+<p class="mute">Each draft is emailed to you. Reply Y (or a thumbs-up) to post it to X and LinkedIn, N for a fresh version, or write feedback / a whole new article. It repeats until you approve; nothing posts without a Y.</p>
+<div>
+  <select id="dProject"></select> <input id="dAngle" placeholder="Angle or notes (optional)" style="width:40%">
+  <button id="draftNow">Draft and email me now</button> <span id="dmsg" class="mute"></span>
+</div>
+<div style="margin-top:8px">
+  Schedule: <select id="sProject"></select> <input id="sAngle" placeholder="Angle (optional)" style="width:25%">
+  <input id="sWhen" type="datetime-local" style="width:auto"> repeat every <input id="sEvery" type="number" min="1" placeholder="-" style="width:60px"> days
+  <button id="sAdd">Schedule</button> <span id="smsg" class="mute"></span>
+</div>
+<div id="schedules"></div>
+<div id="posts"></div>
+
+<details><summary><b>Settings</b> (AI provider, email, X, LinkedIn)</summary><div id="settings"></div></details>
+
 <h2>Projects <button id="cluster">Group items into projects</button> <span id="clustermsg" class="mute"></span></h2>
 <div id="projects"></div>
 
@@ -84,12 +100,91 @@ async function loadItems() {
   }
 }
 
+const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+const when = (d) => (d ? new Date(d).toLocaleString() : "");
+
+function fillSelects() {
+  for (const id of ["#dProject", "#sProject"]) {
+    const s = $(id), v = s.value; s.replaceChildren(new Option("Auto-pick a project", ""));
+    for (const p of projs) s.append(new Option(p.name, p.id)); s.value = v;
+  }
+}
+
+async function loadPosts() {
+  const rows = await (await fetch("/posts")).json(), box = $("#posts"); box.replaceChildren();
+  for (const p of rows) {
+    const d = el("div", null, "item");
+    d.append(el("b", `#${p.id} ${p.project || ""} `), el("span", p.status + (p.revisions ? ` · v${p.revisions + 1}` : ""), "tag"), el("span", " " + when(p.created), "mute"));
+    d.append(el("div", p.body.slice(0, 220) + (p.body.length > 220 ? "..." : ""), "mute"));
+    for (const [k, v] of Object.entries(p.result || {})) { const a = el("a", k + (v.url ? "" : ": " + v.skipped)); if (v.url) { a.href = v.url; a.target = "_blank"; a.rel = "noopener"; } d.append(a, " "); }
+    if (p.error) d.append(el("div", p.error, "bad"));
+    if (["draft", "emailed", "approved"].includes(p.status)) {
+      const b = el("button", "Discard"); b.onclick = async () => { await post(`/posts/${p.id}/discard`); loadPosts(); }; d.append(b);
+    }
+    box.append(d);
+  }
+}
+
+async function loadSchedules() {
+  const rows = await (await fetch("/schedules")).json(), box = $("#schedules"); box.replaceChildren();
+  for (const s of rows) {
+    const d = el("div", `${s.project || "auto-pick"} · next ${when(s.next_run)}${s.every_days ? " · every " + s.every_days + " d" : " · once"}${s.angle ? " · " + s.angle : ""} `, "mute");
+    if (s.last_error) d.append(el("span", s.last_error, "bad"));
+    const b = el("button", "Remove"); b.onclick = async () => { await fetch("/schedules/" + s.id, { method: "DELETE" }); loadSchedules(); };
+    d.append(b); box.append(d);
+  }
+}
+
+$("#draftNow").onclick = async (e) => {
+  e.target.disabled = true; $("#dmsg").textContent = "Writing and emailing...";
+  const r = await post("/posts", { project_id: $("#dProject").value ? +$("#dProject").value : null, angle: $("#dAngle").value }), j = await r.json();
+  $("#dmsg").textContent = r.ok ? "Sent. Check your email." : j.detail; e.target.disabled = false; loadPosts();
+};
+$("#sAdd").onclick = async () => {
+  if (!$("#sWhen").value) { $("#smsg").textContent = "Pick a date and time."; return; }
+  const r = await post("/schedules", { project_id: $("#sProject").value ? +$("#sProject").value : null, angle: $("#sAngle").value,
+    run_at: new Date($("#sWhen").value).toISOString(), every_days: $("#sEvery").value ? +$("#sEvery").value : null });
+  $("#smsg").textContent = r.ok ? "Scheduled." : "Failed."; loadSchedules();
+};
+$("#tick").onclick = async (e) => {
+  e.target.disabled = true; $("#tickmsg").textContent = "Checking...";
+  const r = await post("/cron/tick"); $("#tickmsg").textContent = r.ok ? JSON.stringify(await r.json()) : "failed";
+  e.target.disabled = false; loadPosts(); loadSchedules();
+};
+
+const GROUPS = { "AI provider (any provider's API key)": ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY", "LLM_BASE_URL"],
+  "Email approvals (Gmail app password or any SMTP/IMAP mailbox)": ["MAIL_USER", "MAIL_PASSWORD", "MAIL_TO", "SMTP_HOST", "IMAP_HOST"],
+  "X": ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"], "LinkedIn": ["LINKEDIN_ACCESS_TOKEN"] };
+async function loadSettings() {
+  const { fields, providers } = await (await fetch("/settings")).json(), box = $("#settings"); box.replaceChildren();
+  const inputs = {};
+  for (const [title, names] of Object.entries(GROUPS)) {
+    box.append(el("h3", title));
+    for (const n of names) {
+      const f = fields[n], row = el("div"); row.append(el("label", n + "  ", "mute"));
+      const inp = n === "LLM_PROVIDER" ? el("select") : el("input");
+      if (n === "LLM_PROVIDER") { inp.append(new Option("(choose)", "")); for (const p of providers) inp.append(new Option(p, p)); inp.value = f.value || ""; inp.style.width = "auto"; }
+      else { inp.type = f.secret ? "password" : "text"; inp.autocomplete = "off"; inp.value = f.secret ? "" : f.value || ""; inp.placeholder = f.secret ? (f.set ? "saved (" + f.source + "), type to replace" : "not set") : ""; }
+      inputs[n] = inp; row.append(inp);
+      if (f.set && f.source === "page") { const c = el("button", "Clear"); c.onclick = async () => { await fetch("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [n]: null }) }); loadSettings(); }; row.append(" ", c); }
+      box.append(row);
+    }
+  }
+  const save = el("button", "Save settings"), msg = el("span", "", "mute");
+  save.onclick = async () => {
+    const body = {}; for (const [n, i] of Object.entries(inputs)) if (i.value.trim()) body[n] = i.value.trim();
+    const r = await fetch("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    msg.textContent = r.ok ? " Saved." : " Failed."; if (r.ok) loadSettings();
+  };
+  box.append(save, msg, el("p", "Secrets are stored in your database and never shown again. A saved value overrides a Vercel env var of the same name.", "mute"));
+}
+
 const patch = (url, body) => fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 let project = null, projs = [], showIgnored = false;
 async function loadProjects() {
-  projs = await (await fetch("/projects")).json();
+  projs = await (await fetch("/projects")).json(); fillSelects();
   const box = $("#projects"); box.replaceChildren();
-  if (!projs.length) box.append(el("p", "No projects yet. After a sync, click the button above (needs OPENCODE_API_KEY + LLM_MODEL, ANTHROPIC_API_KEY or VOYAGE_API_KEY).", "mute"));
+  if (!projs.length) box.append(el("p", "No projects yet. After a sync, click the button above (needs an AI provider key in Settings, or a VOYAGE_API_KEY in Vercel).", "mute"));
   for (const p of projs) {
     const b = el("button", p.name + " (" + p.item_count + ")"); b.style.margin = "0 6px 6px 0";
     if (p.id === project) b.style.borderColor = "var(--accent)";
@@ -112,7 +207,7 @@ $("#cluster").onclick = async () => {
 };
 
 let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(loadItems, 250); };
-loadSync(); loadProjects(); loadItems();
+loadSync(); loadProjects().then(loadItems); loadPosts(); loadSchedules(); loadSettings();
 </script>
 </body>
 </html>

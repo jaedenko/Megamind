@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS corrections(id SERIAL PRIMARY KEY, kind TEXT, item_id
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 -- ignored: NULL = not decided yet, true = hidden everywhere (search, grouping, embeddings), false = decided to keep
 ALTER TABLE items ADD COLUMN IF NOT EXISTS ignored BOOLEAN;
+-- posts: draft (not emailed yet) -> emailed (waiting for your reply) -> approved (you said yes; posting) -> published | rejected
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS token TEXT, ADD COLUMN IF NOT EXISTS revisions INT DEFAULT 0, ADD COLUMN IF NOT EXISTS history JSONB DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS result JSONB DEFAULT '{}', ADD COLUMN IF NOT EXISTS error TEXT, ADD COLUMN IF NOT EXISTS schedule_id INT;
+CREATE TABLE IF NOT EXISTS schedules(id SERIAL PRIMARY KEY, project_id INT REFERENCES projects(id) ON DELETE SET NULL,  -- NULL = pick one automatically
+  angle TEXT DEFAULT '', next_run TIMESTAMPTZ NOT NULL, every_days INT, active BOOLEAN DEFAULT true, last_error TEXT);
 """
 COLS = "id, source, type, title, description, date, url, media, tags, metadata, project_id, edited, ignored"
 _ready = False

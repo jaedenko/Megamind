@@ -1,24 +1,7 @@
-import json, os, re
-import httpx
+import json, re
 from .db import connect
 
-def on():
-    return bool(os.environ.get("OPENCODE_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
-
-def ask(prompt):
-    """One text-in/text-out model call. OPENCODE_API_KEY (OpenCode Zen/Go, OpenAI-compatible) wins over ANTHROPIC_API_KEY."""
-    if key := os.environ.get("OPENCODE_API_KEY"):
-        model = os.environ.get("LLM_MODEL")
-        if not model:
-            raise RuntimeError("Set LLM_MODEL to a model id from https://opencode.ai/zen/v1/models (Go subscribers: https://opencode.ai/zen/go/v1/models)")
-        r = httpx.post(os.environ.get("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1") + "/chat/completions", timeout=120,
-                       headers={"Authorization": "Bearer " + key}, json={"model": model, "messages": [{"role": "user", "content": prompt}]})
-        return r.raise_for_status().json()["choices"][0]["message"]["content"] or ""
-    r = httpx.post("https://api.anthropic.com/v1/messages", timeout=120,
-                   headers={"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"},
-                   json={"model": os.environ.get("LLM_MODEL", "claude-sonnet-5-5"), "max_tokens": 8000,
-                         "messages": [{"role": "user", "content": prompt}]})
-    return r.raise_for_status().json()["content"][0]["text"]
+from .llm import ask, on  # noqa: F401  (tests swap cluster.ask)
 
 def parse(text, valid, known):
     """Model reply -> [(existing_project_id | None, name, summary, [item ids])]. Model output is untrusted: only ids we sent survive."""
