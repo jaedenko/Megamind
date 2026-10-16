@@ -355,6 +355,10 @@ def test_cron_endpoint_auth_and_settings_and_posts_endpoints():
     del os.environ["CRON_SECRET"]
     st = c.get("/status", headers=ok).json()  # feeds the Start-here checklist
     assert st["ai"] is False and st["email"] is False and "x" not in st and st["last_check"] is not None and st["items"] == 0 and "/cron/tick?key=" in st["check_url"]
+    assert {"awaiting", "next_run", "last_posted", "posted", "scheduled"} <= set(st)
+    for f in ("logo", "mark", "favicon"):
+        r = c.get(f"/static/{f}.png"); assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"  # public: no password for the logo
+    assert c.get("/static/index.html", headers=ok).status_code == 404 and c.get("/static/../main.py").status_code in (401, 404)  # only the three logo files
     key = st["check_url"].split("key=")[1]
     assert c.get(f"/cron/tick?key={key}").status_code == 200 and c.get("/cron/tick?key=wrong").status_code == 401  # the private link works without the password
     assert c.get(f"/sync?key={key}").status_code == 401

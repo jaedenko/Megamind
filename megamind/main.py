@@ -12,6 +12,8 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 @app.middleware("http")
 async def password_gate(request: Request, call_next):
     # the app holds your data and will post for you, so it never serves without APP_PASSWORD (browser login popup, any username)
+    if request.url.path in ("/static/logo.png", "/static/mark.png", "/static/favicon.png"):
+        return await call_next(request)
     pw = os.environ.get("APP_PASSWORD")
     cron = os.environ.get("CRON_SECRET")  # Vercel Cron (and any scheduler you add) calls /cron/tick with this instead of the password
     if request.url.path == "/cron/tick" and request.query_params.get("key") and secrets.compare_digest(
@@ -151,7 +153,9 @@ def setup_status(request: Request):
             "ai": llm.on(cfg), "email": mail.configured(cfg), "linkedin": social.linkedin_ready(cfg),
             "last_check": lt["value"] if lt else None, "daily_only_cron": True,
             "check_url": f"{base}cron/tick?key={config.cron_key()}",
-            "scheduled": one("SELECT count(*) AS n FROM schedules WHERE active")["n"], "posted": one("SELECT count(*) AS n FROM posts WHERE status='published'")["n"]}
+            "scheduled": one("SELECT count(*) AS n FROM schedules WHERE active")["n"], "posted": one("SELECT count(*) AS n FROM posts WHERE status='published'")["n"],
+            "awaiting": one("SELECT count(*) AS n FROM posts WHERE status IN ('draft','emailed','approved')")["n"],
+            "next_run": one("SELECT min(next_run) AS t FROM schedules WHERE active")["t"], "last_posted": one("SELECT max(published_at) AS t FROM posts")["t"]}
 
 @app.post("/test/{what}")
 def test_connection(what: str):
@@ -173,3 +177,8 @@ def test_connection(what: str):
     except Exception as e:
         return {"ok": False, "message": str(e)[:300]}
     raise HTTPException(404)
+
+@app.get("/static/{name}")
+def static_file(name: str):  # only the three logo files; the gate lets these through without a password
+    if name not in ("logo.png", "mark.png", "favicon.png"): raise HTTPException(404)
+    return FileResponse(WEB / "static" / name, headers={"Cache-Control": "public, max-age=86400"})

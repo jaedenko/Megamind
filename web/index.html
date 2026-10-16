@@ -4,21 +4,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Megamind</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<meta name="theme-color" content="#060f23">
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --fg:#1a1a1a; --mute:#666; --line:#e2e2e2; --ok:#1a7f37; --bad:#c62828; --accent:#2457d6; --accent-fg:#fff; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#101216; --card:#181b21; --fg:#e8e8e8; --mute:#9aa0a6; --line:#2d3139; --ok:#4cc26a; --bad:#ef6b6b; --accent:#7aa2ff; --accent-fg:#101216; } }
+  :root { color-scheme:dark; --bg:#060f23; --card:#0c1730; --fg:#eaf1ff; --mute:#8fa0c4; --line:#1b2a4d; --ok:#3ddc97; --bad:#ff7b7b; --warn:#ffb454; --accent:#27a2ff; --accent-fg:#04122b; }
   * { box-sizing:border-box; }
-  body { font:15px/1.55 system-ui,sans-serif; background:var(--bg); color:var(--fg); max-width:900px; margin:0 auto; padding:20px 16px 60px; }
+  body { font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; background:radial-gradient(900px 420px at 50% -120px,#0e2350 0%,var(--bg) 70%) no-repeat,var(--bg); color:var(--fg); max-width:920px; margin:0 auto; padding:20px 16px 50px; min-height:100vh; }
   h1 { font-size:22px; margin:0; } h2 { font-size:17px; margin:0 0 4px; } h3 { font-size:14px; margin:16px 0 6px; }
-  header p { margin:2px 0 14px; }
+  header { display:flex; align-items:center; gap:16px; margin:4px 0 18px; } header img { height:60px; width:auto; }
+  .wm { font-size:26px; font-weight:800; letter-spacing:.04em; line-height:1; } .wm b { color:var(--accent); }
+  header p { margin:6px 0 0; font-size:14px; }
   nav { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:18px; flex-wrap:wrap; }
-  nav button { border:0; border-bottom:3px solid transparent; border-radius:0; padding:8px 14px; font-size:15px; color:var(--mute); }
+  nav { overflow-x:auto; } nav button { white-space:nowrap; border:0; border-bottom:3px solid transparent; border-radius:0; padding:8px 14px; font-size:15px; color:var(--mute); }
   nav button.on { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
   section { display:none; } section.on { display:block; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
   .card > p:first-of-type { margin-top:0; }
   button { font:inherit; padding:5px 14px; border:1px solid var(--line); background:transparent; color:var(--fg); border-radius:6px; cursor:pointer; }
-  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); font-weight:600; }
+  button.primary { background:linear-gradient(135deg,#3fb4ff,#1f7bf0); color:#03122b; border-color:transparent; font-weight:700; } button.primary:hover:not(:disabled) { filter:brightness(1.1); }
+  button:hover:not(:disabled):not(.primary) { border-color:var(--accent); }
+  .badge { display:inline-block; min-width:18px; padding:0 6px; margin-left:6px; border-radius:9px; background:var(--warn); color:#2b1900; font-size:12px; font-weight:700; text-align:center; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:16px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; } .stat .n { font-size:22px; font-weight:800; } .stat .l { font-size:13px; color:var(--mute); } .stat button { margin-top:8px; }
+  .empty { text-align:center; padding:18px 0; color:var(--mute); } .empty img { height:64px; opacity:.9; display:block; margin:0 auto 8px; }
+  #toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; transition:.25s; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--ok); padding:10px 16px; border-radius:8px; max-width:90vw; box-shadow:0 8px 30px #0008; z-index:9; }
+  #toast.on { opacity:1; transform:translateX(-50%); } #toast.bad { border-left-color:var(--bad); }
+  pre.txt { white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin:6px 0; font:inherit; font-size:14px; }
+  footer { margin-top:30px; text-align:center; font-size:13px; color:var(--mute); }
   button.small { padding:1px 9px; font-size:13px; }
   button:disabled { opacity:.5; cursor:default; }
   input, select { font:inherit; padding:6px 10px; border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:6px; }
@@ -40,22 +52,23 @@
   .item { padding:10px 0; border-top:1px solid var(--line); }
   .chip { display:inline-block; margin:0 6px 6px 0; } .chip.on { border-color:var(--accent); color:var(--accent); font-weight:600; }
   .tag { display:inline-block; font-size:12px; color:var(--mute); border:1px solid var(--line); border-radius:10px; padding:0 8px; margin-right:4px; }
-  .tag.wait { color:#b26a00; border-color:#b26a00; } .tag.done { color:var(--ok); border-color:var(--ok); }
+  .tag.wait { color:var(--warn); border-color:var(--warn); } .tag.done { color:var(--ok); border-color:var(--ok); }
   table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:8px 6px; border-top:1px solid var(--line); vertical-align:top; } th { color:var(--mute); font-weight:500; font-size:13px; border-top:0; }
   .msg { font-size:14px; margin-left:8px; } code { background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:13px; word-break:break-all; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Megamind</h1>
-  <p class="mute">Turns your projects into a LinkedIn post and an X post, emails you both, and posts to LinkedIn only after you say yes. You paste the X post yourself.</p>
+  <img src="/static/mark.png" alt="">
+  <div><div class="wm">MEGA<b>MIND</b></div><p class="mute">Turns your projects into a LinkedIn post and an X post, emails you both, and posts to LinkedIn only after you say yes. You paste the X post yourself.</p></div>
 </header>
 <nav id="tabs">
-  <button data-tab="start">Start here</button><button data-tab="library">My work</button><button data-tab="posts">Posts</button><button data-tab="settings">Settings</button>
+  <button data-tab="start">Start here</button><button data-tab="library">My work</button><button data-tab="posts">Posts<span class="badge" id="badge" hidden></span></button><button data-tab="settings">Settings</button>
 </nav>
 
 <!-- START -->
 <section id="tab-start">
+  <div class="stats" id="stats"></div>
   <div class="card">
     <h2>How it works</h2>
     <div class="steps">
@@ -128,6 +141,9 @@
 <!-- SETTINGS -->
 <section id="tab-settings"><div id="settings"></div></section>
 
+<footer>Megamind · nothing posts without your yes</footer>
+<div id="toast"></div>
+
 <script>
 const $ = (s) => document.querySelector(s);
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
@@ -136,6 +152,8 @@ const post = (url, body) => fetch(url, { method: "POST", headers: J, body: JSON.
 const patch = (url, body) => fetch(url, { method: "PATCH", headers: J, body: JSON.stringify(body) });
 const when = (d) => (d ? new Date(d).toLocaleString() : "");
 const ago = (d) => { if (!d) return "never"; const m = Math.round((Date.now() - new Date(d)) / 60000); return m < 1 ? "just now" : m < 90 ? m + " min ago" : m < 2880 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago"; };
+let tt; const toast = (text, ok = true) => { const t = $("#toast"); t.textContent = text; t.className = "on" + (ok ? "" : " bad"); clearTimeout(tt); tt = setTimeout(() => (t.className = ""), 3500); };
+const empty = (text) => { const d = el("div", null, "empty"), i = el("img"); i.src = "/static/mark.png"; i.alt = ""; d.append(i, el("div", text)); return d; };
 let projs = [], project = null, showIgnored = false, STATUS = {};
 
 /* ---------- tabs ---------- */
@@ -149,8 +167,15 @@ for (const b of document.querySelectorAll("nav button")) b.onclick = () => show(
 
 /* ---------- start here ---------- */
 async function loadStatus() {
-  STATUS = await (await fetch("/status")).json(); const s = STATUS;
+  STATUS = await (await fetch("/status")).json(); let s = STATUS;
+  if (!s.last_check || Date.now() - new Date(s.last_check) > 10 * 60e3) { await post("/cron/tick").catch(() => {}); STATUS = await (await fetch("/status")).json(); s = STATUS; }  // opening the page also checks your inbox
   const fresh = s.last_check && Date.now() - new Date(s.last_check) < 36 * 3600e3;
+  const badge = $("#badge"); badge.hidden = !s.awaiting; badge.textContent = s.awaiting;
+  const stats = $("#stats"); stats.replaceChildren();
+  const stat = (n, l, btn, tab) => { const d = el("div", null, "stat"); d.append(el("div", n, "n"), el("div", l, "l")); if (btn) { const b = el("button", btn, "small"); b.onclick = () => show(tab); d.append(b); } stats.append(d); };
+  stat(String(s.awaiting), s.awaiting === 1 ? "draft waiting on you" : "drafts waiting on you", s.awaiting ? "Open" : "", "posts");
+  stat(s.next_run ? when(s.next_run) : "None", "next scheduled draft", s.next_run ? "" : "Schedule one", "posts");
+  stat(String(s.posted), s.last_posted ? "posted · last " + ago(s.last_posted) : "posts published");
   const steps = [
     [s.items > 0, "Collect your work", s.items > 0 ? s.items + " items collected" : "Nothing yet. Connect GitHub, Notion or a website (see the README), then press Update on the My work tab.", "My work", "library"],
     [s.projects > 0, "Sort it into projects", s.projects > 0 ? s.projects + " projects" : "Press \"Sort items into projects\" on the My work tab.", "My work", "library"],
@@ -193,7 +218,7 @@ async function loadSync() {
 async function loadProjects() {
   projs = await (await fetch("/projects")).json(); fillSelects();
   const box = $("#projects"); box.replaceChildren();
-  if (!projs.length) box.append(el("p", "No projects yet. Press the button above. It needs an AI connected (Settings tab).", "mute"));
+  if (!projs.length) box.append(empty("No projects yet. Press the button above. It needs an AI connected (Settings tab)."));
   for (const p of projs) {
     const b = el("button", p.name + " (" + p.item_count + ")", "chip" + (p.id === project ? " on" : ""));
     b.onclick = () => { project = project === p.id ? null : p.id; loadProjects(); loadItems(); }; box.append(b);
@@ -232,7 +257,7 @@ async function loadItems() {
 $("#cluster").onclick = async (e) => {
   e.target.disabled = true; $("#clustermsg").textContent = "Sorting...";
   const r = await fetch("/cluster", { method: "POST" }), j = await r.json();
-  $("#clustermsg").textContent = r.ok ? j.items_placed + " items sorted, " + j.projects_created + " new projects" : j.detail; e.target.disabled = false;
+  $("#clustermsg").textContent = r.ok ? j.items_placed + " items sorted, " + j.projects_created + " new projects" : j.detail; e.target.disabled = false; toast(r.ok ? j.items_placed + " items sorted into projects" : j.detail, r.ok);
   loadProjects(); loadItems();
 };
 $("#toggleIgn").onclick = (e) => { showIgnored = !showIgnored; e.target.textContent = showIgnored ? "Show items" : "Show ignored"; loadItems(); };
@@ -248,11 +273,16 @@ function fillSelects() {
 const LABEL = { draft: ["Email not sent yet", "wait"], emailed: ["Waiting for your reply", "wait"], approved: ["Approved, posting", "wait"], published: ["Posted", "done"], rejected: ["Discarded", ""] };
 async function loadPosts() {
   const rows = await (await fetch("/posts")).json(), box = $("#posts"); box.replaceChildren();
-  if (!rows.length) box.append(el("p", "No posts yet. Write one above.", "mute"));
+  if (!rows.length) box.append(empty("No posts yet. Write your first one above."));
   for (const p of rows) {
     const [label, cls] = LABEL[p.status] || [p.status, ""], d = el("div", null, "item");
     d.append(el("b", (p.project || "Post") + " "), el("span", label, "tag " + cls), el("span", p.revisions ? "version " + (p.revisions + 1) + "  " : "", "mute"), el("span", when(p.created), "mute"));
-    d.append(el("div", p.body.slice(0, 240) + (p.body.length > 240 ? "..." : ""), "hint"));
+    const full = el("details"); full.append(el("summary", "Read and copy the full text"));
+    for (const [label, text] of [["LinkedIn post", p.body], ["X post (paste this one yourself)", p.x_body]]) {
+      const c = el("button", "Copy", "small"); c.onclick = () => { navigator.clipboard.writeText(text); toast(label + " copied."); };
+      full.append(el("h3", label + " "), el("pre", text, "txt")); full.lastChild.before(c); c.style.marginLeft = "8px";
+    }
+    d.append(el("div", p.body.slice(0, 200) + (p.body.length > 200 ? "..." : ""), "hint"), full);
     for (const [k, v] of Object.entries(p.result || {})) { const a = el("a", v.url ? "View on LinkedIn" : "LinkedIn: " + v.skipped); if (v.url) { a.href = v.url; a.target = "_blank"; a.rel = "noopener"; } d.append(a, " "); }
     if (p.error) d.append(el("div", "Problem: " + p.error, "bad"));
     if (["draft", "emailed", "approved"].includes(p.status)) { const b = el("button", "Discard", "small"); b.onclick = async () => { await post(`/posts/${p.id}/discard`); loadPosts(); }; d.append(b); }
@@ -271,17 +301,17 @@ async function loadSchedules() {
 $("#draftNow").onclick = async (e) => {
   e.target.disabled = true; $("#dmsg").textContent = "Writing and emailing, one moment...";
   const r = await post("/posts", { project_id: $("#dProject").value ? +$("#dProject").value : null, angle: $("#dAngle").value }), j = await r.json();
-  $("#dmsg").textContent = r.ok ? "Done. Check your email." : j.detail; $("#dmsg").className = "msg " + (r.ok ? "ok" : "bad"); e.target.disabled = false; loadPosts();
+  $("#dmsg").textContent = ""; toast(r.ok ? "Draft emailed to you. Reply Y to post it." : j.detail, r.ok); e.target.disabled = false; loadPosts();
 };
 $("#sAdd").onclick = async () => {
   if (!$("#sWhen").value) { $("#smsg").textContent = "Pick a date and time first."; $("#smsg").className = "msg bad"; return; }
   const r = await post("/schedules", { project_id: $("#sProject").value ? +$("#sProject").value : null, angle: $("#sAngle").value,
     run_at: new Date($("#sWhen").value).toISOString(), every_days: $("#sEvery").value ? +$("#sEvery").value : null });
-  $("#smsg").textContent = r.ok ? "Scheduled." : "That didn't work."; $("#smsg").className = "msg " + (r.ok ? "ok" : "bad"); loadSchedules();
+  $("#smsg").textContent = ""; toast(r.ok ? "Scheduled." : "That didn't work.", r.ok); loadSchedules();
 };
 $("#tick").onclick = async (e) => {
   e.target.disabled = true; $("#tickmsg").textContent = "Checking...";
-  const r = await post("/cron/tick"); $("#tickmsg").textContent = r.ok ? "Done." : "That didn't work."; e.target.disabled = false; loadPosts(); loadSchedules();
+  const r = await post("/cron/tick"); $("#tickmsg").textContent = ""; toast(r.ok ? "Inbox checked." : "That didn't work.", r.ok); e.target.disabled = false; loadPosts(); loadSchedules(); loadStatus();
 };
 
 /* ---------- settings ---------- */
@@ -336,12 +366,12 @@ async function loadSettings() {
     save.onclick = async () => {
       const body = {}; for (const [n, i] of Object.entries(inputs)) if (i.value.trim()) body[n] = i.value.trim();
       const r = await fetch("/settings", { method: "PUT", headers: J, body: JSON.stringify(body) });
-      msg.textContent = r.ok ? "Saved." : "Could not save."; msg.className = "msg " + (r.ok ? "ok" : "bad"); if (r.ok) { setTimeout(loadSettings, 700); }
+      msg.textContent = ""; toast(r.ok ? "Saved." : "Could not save.", r.ok); if (r.ok) { setTimeout(loadSettings, 700); }
     };
     if (c.test) {
       const t = el("button", "Test"); row.append(" ", t); t.onclick = async () => {
         t.disabled = true; msg.textContent = "Testing..."; msg.className = "msg mute";
-        const j = await (await post("/test/" + c.test)).json(); msg.textContent = j.message; msg.className = "msg " + (j.ok ? "ok" : "bad"); t.disabled = false;
+        const j = await (await post("/test/" + c.test)).json(); msg.textContent = j.message; msg.className = "msg " + (j.ok ? "ok" : "bad"); t.disabled = false; toast(j.ok ? "Test passed." : "Test failed. See the message.", j.ok);
       };
     }
     row.append(msg); card.append(row);
