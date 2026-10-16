@@ -5,209 +5,374 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Megamind</title>
 <style>
-  :root { --bg:#fff; --fg:#1a1a1a; --mute:#666; --line:#e2e2e2; --ok:#1a7f37; --bad:#c62828; --accent:#2457d6; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16181d; --fg:#e8e8e8; --mute:#9aa0a6; --line:#2d3139; --ok:#4cc26a; --bad:#ef6b6b; --accent:#7aa2ff; } }
-  body { font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); max-width:960px; margin:0 auto; padding:24px 16px; }
-  h1 { font-size:20px; margin:0 0 20px; } h2 { font-size:16px; margin:28px 0 8px; }
-  table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--mute); font-weight:500; font-size:13px; }
-  button { font:inherit; padding:4px 12px; border:1px solid var(--line); background:transparent; color:var(--fg); border-radius:6px; cursor:pointer; }
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1a1a1a; --mute:#666; --line:#e2e2e2; --ok:#1a7f37; --bad:#c62828; --accent:#2457d6; --accent-fg:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#101216; --card:#181b21; --fg:#e8e8e8; --mute:#9aa0a6; --line:#2d3139; --ok:#4cc26a; --bad:#ef6b6b; --accent:#7aa2ff; --accent-fg:#101216; } }
+  * { box-sizing:border-box; }
+  body { font:15px/1.55 system-ui,sans-serif; background:var(--bg); color:var(--fg); max-width:900px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:22px; margin:0; } h2 { font-size:17px; margin:0 0 4px; } h3 { font-size:14px; margin:16px 0 6px; }
+  header p { margin:2px 0 14px; }
+  nav { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:18px; flex-wrap:wrap; }
+  nav button { border:0; border-bottom:3px solid transparent; border-radius:0; padding:8px 14px; font-size:15px; color:var(--mute); }
+  nav button.on { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+  section { display:none; } section.on { display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+  .card > p:first-of-type { margin-top:0; }
+  button { font:inherit; padding:5px 14px; border:1px solid var(--line); background:transparent; color:var(--fg); border-radius:6px; cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); font-weight:600; }
+  button.small { padding:1px 9px; font-size:13px; }
   button:disabled { opacity:.5; cursor:default; }
-  input { font:inherit; padding:6px 10px; border:1px solid var(--line); background:transparent; color:var(--fg); border-radius:6px; width:100%; box-sizing:border-box; }
+  input, select { font:inherit; padding:6px 10px; border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:6px; }
+  input[type=text], input[type=password], input[type=search], input:not([type]) { width:100%; }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 3px; }
+  .hint { font-size:13px; color:var(--mute); margin:2px 0 0; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; } .row > div { flex:1; min-width:170px; }
   .ok { color:var(--ok); } .bad { color:var(--bad); } .mute { color:var(--mute); }
-  .item { padding:10px 0; border-bottom:1px solid var(--line); } .item a { color:var(--accent); text-decoration:none; }
-  select { font:inherit; padding:3px 6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:6px; }
+  a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+  details { margin:10px 0; } summary { cursor:pointer; color:var(--accent); font-size:14px; } details ol, details ul { margin:8px 0; padding-left:22px; } details li { margin:4px 0; }
+  .steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin:10px 0 0; }
+  .steps div { border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:14px; } .steps b { display:block; margin-bottom:2px; }
+  ul.check { list-style:none; padding:0; margin:8px 0 0; }
+  ul.check li { display:flex; gap:12px; align-items:center; padding:10px 0; border-top:1px solid var(--line); }
+  ul.check .dot { width:24px; height:24px; border-radius:50%; border:2px solid var(--line); flex:none; display:grid; place-items:center; font-size:14px; }
+  ul.check li.done .dot { background:var(--ok); border-color:var(--ok); color:#fff; }
+  ul.check .txt { flex:1; } ul.check .txt b { display:block; } ul.check .txt span { font-size:13px; color:var(--mute); }
+  .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; margin:8px 0 4px; } .bar i { display:block; height:100%; background:var(--ok); }
+  .item { padding:10px 0; border-top:1px solid var(--line); }
+  .chip { display:inline-block; margin:0 6px 6px 0; } .chip.on { border-color:var(--accent); color:var(--accent); font-weight:600; }
   .tag { display:inline-block; font-size:12px; color:var(--mute); border:1px solid var(--line); border-radius:10px; padding:0 8px; margin-right:4px; }
+  .tag.wait { color:#b26a00; border-color:#b26a00; } .tag.done { color:var(--ok); border-color:var(--ok); }
+  table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:8px 6px; border-top:1px solid var(--line); vertical-align:top; } th { color:var(--mute); font-weight:500; font-size:13px; border-top:0; }
+  .msg { font-size:14px; margin-left:8px; } code { background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:13px; word-break:break-all; }
 </style>
 </head>
 <body>
-<h1>Megamind</h1>
+<header>
+  <h1>Megamind</h1>
+  <p class="mute">Turns your projects into LinkedIn and X posts, emails you each draft, and only posts after you say yes.</p>
+</header>
+<nav id="tabs">
+  <button data-tab="start">Start here</button><button data-tab="library">My work</button><button data-tab="posts">Posts</button><button data-tab="settings">Settings</button>
+</nav>
 
-<h2>Sync</h2>
-<table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last run</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
+<!-- START -->
+<section id="tab-start">
+  <div class="card">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div><b>1. Collect</b>Megamind reads your GitHub, Notion and website.</div>
+      <div><b>2. Group</b>It sorts everything into your projects.</div>
+      <div><b>3. Schedule</b>You pick when to post. On that day it writes a draft.</div>
+      <div><b>4. Approve</b>The draft arrives by email. Reply <b style="display:inline">Y</b> to post, or reply with changes.</div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Setup checklist</h2>
+    <div class="bar"><i id="barfill" style="width:0"></i></div><div class="hint" id="barlabel"></div>
+    <ul class="check" id="checklist"></ul>
+  </div>
+</section>
 
-<h2>Posts <button id="tick">Check now</button> <span id="tickmsg" class="mute"></span></h2>
-<p class="mute">Each draft is emailed to you. Reply Y (or a thumbs-up) to post it to X and LinkedIn, N for a fresh version, or write feedback / a whole new article. It repeats until you approve; nothing posts without a Y.</p>
-<div>
-  <select id="dProject"></select> <input id="dAngle" placeholder="Angle or notes (optional)" style="width:40%">
-  <button id="draftNow">Draft and email me now</button> <span id="dmsg" class="mute"></span>
-</div>
-<div style="margin-top:8px">
-  Schedule: <select id="sProject"></select> <input id="sAngle" placeholder="Angle (optional)" style="width:25%">
-  <input id="sWhen" type="datetime-local" style="width:auto"> repeat every <input id="sEvery" type="number" min="1" placeholder="-" style="width:60px"> days
-  <button id="sAdd">Schedule</button> <span id="smsg" class="mute"></span>
-</div>
-<div id="schedules"></div>
-<div id="posts"></div>
+<!-- MY WORK -->
+<section id="tab-library">
+  <div class="card">
+    <h2>1. Your sources</h2>
+    <p class="hint">Where Megamind finds your work. Press <b>Update</b> to pull in the latest. Nothing is ever changed at the source.</p>
+    <table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last updated</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card">
+    <h2>2. Your projects</h2>
+    <p class="hint">Megamind sorts your items into projects. Click a project to see what is in it, or fix a mistake with the dropdown next to any item.</p>
+    <button id="cluster" class="primary">Sort items into projects</button><span id="clustermsg" class="msg mute"></span>
+    <div id="projects" style="margin-top:12px"></div>
+  </div>
+  <div class="card">
+    <h2>3. Everything collected <span id="filter" class="mute"></span></h2>
+    <p class="hint">Don't want something used in posts? Press <b>Ignore</b>. You can bring it back any time.</p>
+    <div class="row"><div><input type="search" id="search" placeholder="Search your items"></div><button id="toggleIgn">Show ignored</button></div>
+    <div id="items"></div>
+  </div>
+</section>
 
-<details><summary><b>Settings</b> (AI provider, email, X, LinkedIn)</summary><div id="settings"></div></details>
+<!-- POSTS -->
+<section id="tab-posts">
+  <div class="card">
+    <h2>Write a post</h2>
+    <p class="hint">Megamind writes a LinkedIn post and a short X post and emails them to you. Reply <b>Y</b> (or a thumbs-up) to publish both, <b>N</b> for a fresh try, or reply with changes, or paste your own full version. It repeats until you say Y. <b>Nothing is ever posted without your Y.</b></p>
+    <div class="row">
+      <div><label for="dProject">About which project?</label><select id="dProject" style="width:100%"></select></div>
+      <div><label for="dAngle">Anything to emphasise? (optional)</label><input id="dAngle" placeholder="e.g. what I learned about the gripper"></div>
+    </div>
+    <p><button id="draftNow" class="primary">Write it and email it to me now</button><span id="dmsg" class="msg mute"></span></p>
+  </div>
+  <div class="card">
+    <h2>Schedule posts</h2>
+    <p class="hint">On the day, Megamind writes the draft and emails it to you for approval.</p>
+    <div class="row">
+      <div><label for="sProject">Project</label><select id="sProject" style="width:100%"></select></div>
+      <div><label for="sAngle">Emphasis (optional)</label><input id="sAngle"></div>
+    </div>
+    <div class="row">
+      <div><label for="sWhen">Send me the draft on</label><input id="sWhen" type="datetime-local" style="width:100%"></div>
+      <div><label for="sEvery">Repeat every (days, blank = just once)</label><input id="sEvery" type="number" min="1" placeholder="7" style="width:100%"></div>
+    </div>
+    <p><button id="sAdd" class="primary">Add to schedule</button><span id="smsg" class="msg mute"></span></p>
+    <div id="schedules"></div>
+  </div>
+  <div class="card">
+    <h2>Your posts</h2>
+    <p class="hint">Replies to your emails are picked up automatically. In a hurry? <button id="tick" class="small">Check my inbox now</button><span id="tickmsg" class="msg mute"></span></p>
+    <div id="posts"></div>
+  </div>
+</section>
 
-<h2>Projects <button id="cluster">Group items into projects</button> <span id="clustermsg" class="mute"></span></h2>
-<div id="projects"></div>
-
-<h2>Items <span id="filter" class="mute"></span> <button id="toggleIgn">Show ignored</button></h2>
-<input id="search" placeholder="Search items (by meaning when Voyage is set up, otherwise by keyword)">
-<div id="items"></div>
+<!-- SETTINGS -->
+<section id="tab-settings"><div id="settings"></div></section>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+const J = { "Content-Type": "application/json" };
+const post = (url, body) => fetch(url, { method: "POST", headers: J, body: JSON.stringify(body || {}) });
+const patch = (url, body) => fetch(url, { method: "PATCH", headers: J, body: JSON.stringify(body) });
+const when = (d) => (d ? new Date(d).toLocaleString() : "");
+const ago = (d) => { if (!d) return "never"; const m = Math.round((Date.now() - new Date(d)) / 60000); return m < 1 ? "just now" : m < 90 ? m + " min ago" : m < 2880 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago"; };
+let projs = [], project = null, showIgnored = false, STATUS = {};
 
+/* ---------- tabs ---------- */
+function show(tab) {
+  for (const b of document.querySelectorAll("nav button")) b.classList.toggle("on", b.dataset.tab === tab);
+  for (const s of document.querySelectorAll("section")) s.classList.toggle("on", s.id === "tab-" + tab);
+  history.replaceState(null, "", "#" + tab);
+  if (tab === "start") loadStatus(); if (tab === "settings") loadSettings(); if (tab === "posts") { loadPosts(); loadSchedules(); }
+}
+for (const b of document.querySelectorAll("nav button")) b.onclick = () => show(b.dataset.tab);
+
+/* ---------- start here ---------- */
+async function loadStatus() {
+  STATUS = await (await fetch("/status")).json(); const s = STATUS;
+  const fresh = s.last_check && Date.now() - new Date(s.last_check) < 36 * 3600e3;
+  const steps = [
+    [s.items > 0, "Collect your work", s.items > 0 ? s.items + " items collected" : "Nothing yet. Connect GitHub, Notion or a website (see the README), then press Update on the My work tab.", "My work", "library"],
+    [s.projects > 0, "Sort it into projects", s.projects > 0 ? s.projects + " projects" : "Press \"Sort items into projects\" on the My work tab.", "My work", "library"],
+    [s.ai, "Connect an AI", s.ai ? "Connected" : "Needed to write your drafts. Any provider works (Gemini, OpenAI, Anthropic and more).", "Set up", "settings"],
+    [s.email, "Connect your email", s.email ? "Connected" : "Needed so Megamind can email you drafts and read your replies.", "Set up", "settings"],
+    [s.x, "Connect X (optional)", s.x ? "Connected" : "Skip this if you only want LinkedIn.", "Set up", "settings"],
+    [s.linkedin, "Connect LinkedIn (optional)", s.linkedin ? "Connected" : "Skip this if you only want X.", "Set up", "settings"],
+    [fresh, "Turn on automatic checking", fresh ? "Last check " + ago(s.last_check) : "Megamind has to check for your email replies regularly. It takes two minutes to turn on.", "How", "settings"],
+    [s.scheduled > 0 || s.posted > 0, "Schedule your first post", s.posted > 0 ? s.posted + " posted so far" : s.scheduled > 0 ? s.scheduled + " scheduled" : "Pick a project and a day on the Posts tab.", "Schedule", "posts"],
+  ];
+  const box = $("#checklist"); box.replaceChildren();
+  for (const [done, title, detail, btn, tab] of steps) {
+    const li = el("li", null, done ? "done" : ""), dot = el("div", done ? "✓" : "", "dot"), txt = el("div", null, "txt");
+    txt.append(el("b", title), el("span", detail)); li.append(dot, txt);
+    if (!done) { const b = el("button", btn); b.onclick = () => show(tab); li.append(b); }
+    box.append(li);
+  }
+  const n = steps.filter((x) => x[0]).length;
+  $("#barfill").style.width = (n / steps.length) * 100 + "%"; $("#barlabel").textContent = n + " of " + steps.length + " done";
+}
+
+/* ---------- my work ---------- */
+const NEEDS = { github: "GITHUB_TOKEN", notion: "NOTION_TOKEN", website: "SITE_URL" };
 async function loadSync() {
-  const rows = await (await fetch("/sync")).json();
-  const tb = $("#sync tbody"); tb.replaceChildren();
+  const rows = await (await fetch("/sync")).json(), tb = $("#sync tbody"); tb.replaceChildren();
   for (const r of rows) {
-    const tr = el("tr");
-    tr.append(el("td", r.source));
+    const tr = el("tr"); tr.append(el("td", r.source[0].toUpperCase() + r.source.slice(1)));
     let status, cls;
-    if (r.disabled) [status, cls] = ["disabled", "mute"];
-    else if (!r.configured) [status, cls] = ["not configured", "mute"];
-    else if (r.ok == null) [status, cls] = ["never run", "mute"];
-    else if (r.ok) [status, cls] = ["ok", "ok"];
-    else [status, cls] = ["error: " + r.error, "bad"];
-    tr.append(el("td", status, cls));
-    tr.append(el("td", r.last_run ? new Date(r.last_run).toLocaleString() : "-"));
-    tr.append(el("td", r.count ?? "-"));
-    const td = el("td"), b = el("button", "Re-sync");
-    b.disabled = r.disabled || !r.configured;
-    b.onclick = async () => { b.disabled = true; b.textContent = "Syncing..."; await fetch("/sync/" + r.source, { method: "POST" }); await loadSync(); loadItems(); };
+    if (r.disabled) [status, cls] = ["Switched off", "mute"];
+    else if (!r.configured) [status, cls] = ["Not connected: add " + (NEEDS[r.source] || "its key") + " in Vercel", "mute"];
+    else if (r.ok == null) [status, cls] = ["Connected, not updated yet", "mute"];
+    else if (r.ok) [status, cls] = ["Up to date", "ok"];
+    else [status, cls] = ["Problem: " + r.error, "bad"];
+    tr.append(el("td", status, cls), el("td", r.last_run ? when(r.last_run) : "-"), el("td", r.count ?? "-"));
+    const td = el("td"), b = el("button", "Update"); b.disabled = r.disabled || !r.configured;
+    b.onclick = async () => { b.disabled = true; b.textContent = "Updating..."; await fetch("/sync/" + r.source, { method: "POST" }); await loadSync(); loadItems(); };
     td.append(b); tr.append(td); tb.append(tr);
   }
 }
 
+async function loadProjects() {
+  projs = await (await fetch("/projects")).json(); fillSelects();
+  const box = $("#projects"); box.replaceChildren();
+  if (!projs.length) box.append(el("p", "No projects yet. Press the button above. It needs an AI connected (Settings tab).", "mute"));
+  for (const p of projs) {
+    const b = el("button", p.name + " (" + p.item_count + ")", "chip" + (p.id === project ? " on" : ""));
+    b.onclick = () => { project = project === p.id ? null : p.id; loadProjects(); loadItems(); }; box.append(b);
+  }
+  const cur = projs.find((p) => p.id === project);
+  $("#filter").textContent = cur ? "in " + cur.name : "";
+  if (cur) {
+    const r = el("button", "Rename this project", "small");
+    r.onclick = async () => { const n = prompt("Project name", cur.name); if (n) { await patch("/projects/" + cur.id, { name: n }); loadProjects(); } };
+    box.append(el("p", cur.summary || "", "hint"), r);
+  }
+}
+
 async function loadItems() {
-  const s = $("#search").value.trim();
-  const qs = new URLSearchParams(); if (s) qs.set("search", s); if (project) qs.set("project", project); if (showIgnored) qs.set("ignored", "true");
-  const rows = await (await fetch("/items?" + qs)).json();
-  const box = $("#items"); box.replaceChildren();
-  if (!rows.length) box.append(el("p", showIgnored ? "Nothing ignored." : "No items yet. Add a token in Vercel (Settings > Environment Variables), redeploy, then hit Re-sync.", "mute"));
+  const s = $("#search").value.trim(), qs = new URLSearchParams();
+  if (s) qs.set("search", s); if (project) qs.set("project", project); if (showIgnored) qs.set("ignored", "true");
+  const rows = await (await fetch("/items?" + qs)).json(), box = $("#items"); box.replaceChildren();
+  if (!rows.length) box.append(el("p", showIgnored ? "Nothing ignored." : "Nothing here yet. Connect a source above and press Update.", "mute"));
   for (const it of rows.slice(0, 200)) {
-    const d = el("div", null, "item"), a = el("a", it.title || it.url); if (it.url) a.href = it.url; a.target = "_blank"; a.rel = "noopener";
+    const d = el("div", null, "item"), a = el("a", it.title || it.url); if (it.url) { a.href = it.url; a.target = "_blank"; a.rel = "noopener"; }
     d.append(a, el("span", "  " + it.source + (it.date ? " · " + it.date.slice(0, 10) : ""), "mute"));
-    if (it.description) d.append(el("div", it.description.slice(0, 160), "mute"));
-    const t = el("div"); for (const x of it.tags) t.append(el("span", x, "tag"));
+    if (it.description) d.append(el("div", it.description.slice(0, 160), "hint"));
+    const t = el("div"); t.style.marginTop = "6px";
     if (!showIgnored) {
-      const sel = el("select"); sel.append(new Option("no project", ""));
+      const sel = el("select"); sel.append(new Option("Not in a project", ""));
       for (const p of projs) sel.append(new Option(p.name, p.id));
       sel.value = it.project_id ?? "";
       sel.onchange = async () => { await patch("/items/" + it.id, { project_id: sel.value ? +sel.value : null }); loadProjects(); };
       t.append(sel, " ");
     }
-    const ig = el("button", showIgnored ? "Restore" : "Ignore");
+    const ig = el("button", showIgnored ? "Bring back" : "Ignore", "small");
     ig.onclick = async () => { await patch("/items/" + it.id, { ignored: showIgnored }); loadProjects(); loadItems(); };
-    t.append(ig); d.append(t);
-    box.append(d);
+    t.append(ig); d.append(t); box.append(d);
   }
 }
+$("#cluster").onclick = async (e) => {
+  e.target.disabled = true; $("#clustermsg").textContent = "Sorting...";
+  const r = await fetch("/cluster", { method: "POST" }), j = await r.json();
+  $("#clustermsg").textContent = r.ok ? j.items_placed + " items sorted, " + j.projects_created + " new projects" : j.detail; e.target.disabled = false;
+  loadProjects(); loadItems();
+};
+$("#toggleIgn").onclick = (e) => { showIgnored = !showIgnored; e.target.textContent = showIgnored ? "Show items" : "Show ignored"; loadItems(); };
+let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(loadItems, 250); };
 
-const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-const when = (d) => (d ? new Date(d).toLocaleString() : "");
-
+/* ---------- posts ---------- */
 function fillSelects() {
   for (const id of ["#dProject", "#sProject"]) {
-    const s = $(id), v = s.value; s.replaceChildren(new Option("Auto-pick a project", ""));
+    const s = $(id), v = s.value; s.replaceChildren(new Option("Let Megamind choose", ""));
     for (const p of projs) s.append(new Option(p.name, p.id)); s.value = v;
   }
 }
-
+const LABEL = { draft: ["Email not sent yet", "wait"], emailed: ["Waiting for your reply", "wait"], approved: ["Approved, posting", "wait"], published: ["Posted", "done"], rejected: ["Discarded", ""] };
 async function loadPosts() {
   const rows = await (await fetch("/posts")).json(), box = $("#posts"); box.replaceChildren();
+  if (!rows.length) box.append(el("p", "No posts yet. Write one above.", "mute"));
   for (const p of rows) {
-    const d = el("div", null, "item");
-    d.append(el("b", `#${p.id} ${p.project || ""} `), el("span", p.status + (p.revisions ? ` · v${p.revisions + 1}` : ""), "tag"), el("span", " " + when(p.created), "mute"));
-    d.append(el("div", p.body.slice(0, 220) + (p.body.length > 220 ? "..." : ""), "mute"));
-    for (const [k, v] of Object.entries(p.result || {})) { const a = el("a", k + (v.url ? "" : ": " + v.skipped)); if (v.url) { a.href = v.url; a.target = "_blank"; a.rel = "noopener"; } d.append(a, " "); }
-    if (p.error) d.append(el("div", p.error, "bad"));
-    if (["draft", "emailed", "approved"].includes(p.status)) {
-      const b = el("button", "Discard"); b.onclick = async () => { await post(`/posts/${p.id}/discard`); loadPosts(); }; d.append(b);
-    }
+    const [label, cls] = LABEL[p.status] || [p.status, ""], d = el("div", null, "item");
+    d.append(el("b", (p.project || "Post") + " "), el("span", label, "tag " + cls), el("span", p.revisions ? "version " + (p.revisions + 1) + "  " : "", "mute"), el("span", when(p.created), "mute"));
+    d.append(el("div", p.body.slice(0, 240) + (p.body.length > 240 ? "..." : ""), "hint"));
+    for (const [k, v] of Object.entries(p.result || {})) { const a = el("a", v.url ? "View on " + (k === "x" ? "X" : "LinkedIn") : (k === "x" ? "X" : "LinkedIn") + ": " + v.skipped); if (v.url) { a.href = v.url; a.target = "_blank"; a.rel = "noopener"; } d.append(a, " "); }
+    if (p.error) d.append(el("div", "Problem: " + p.error, "bad"));
+    if (["draft", "emailed", "approved"].includes(p.status)) { const b = el("button", "Discard", "small"); b.onclick = async () => { await post(`/posts/${p.id}/discard`); loadPosts(); }; d.append(b); }
     box.append(d);
   }
 }
-
 async function loadSchedules() {
   const rows = await (await fetch("/schedules")).json(), box = $("#schedules"); box.replaceChildren();
+  if (rows.length) box.append(el("h3", "Coming up"));
   for (const s of rows) {
-    const d = el("div", `${s.project || "auto-pick"} · next ${when(s.next_run)}${s.every_days ? " · every " + s.every_days + " d" : " · once"}${s.angle ? " · " + s.angle : ""} `, "mute");
-    if (s.last_error) d.append(el("span", s.last_error, "bad"));
-    const b = el("button", "Remove"); b.onclick = async () => { await fetch("/schedules/" + s.id, { method: "DELETE" }); loadSchedules(); };
-    d.append(b); box.append(d);
+    const d = el("div", `${when(s.next_run)} · ${s.project || "any project"}${s.every_days ? " · repeats every " + s.every_days + " days" : " · once"}${s.angle ? " · " + s.angle : ""} `, "item");
+    if (s.last_error) d.append(el("div", "Problem: " + s.last_error, "bad"));
+    const b = el("button", "Remove", "small"); b.onclick = async () => { await fetch("/schedules/" + s.id, { method: "DELETE" }); loadSchedules(); }; d.append(b); box.append(d);
   }
 }
-
 $("#draftNow").onclick = async (e) => {
-  e.target.disabled = true; $("#dmsg").textContent = "Writing and emailing...";
+  e.target.disabled = true; $("#dmsg").textContent = "Writing and emailing, one moment...";
   const r = await post("/posts", { project_id: $("#dProject").value ? +$("#dProject").value : null, angle: $("#dAngle").value }), j = await r.json();
-  $("#dmsg").textContent = r.ok ? "Sent. Check your email." : j.detail; e.target.disabled = false; loadPosts();
+  $("#dmsg").textContent = r.ok ? "Done. Check your email." : j.detail; $("#dmsg").className = "msg " + (r.ok ? "ok" : "bad"); e.target.disabled = false; loadPosts();
 };
 $("#sAdd").onclick = async () => {
-  if (!$("#sWhen").value) { $("#smsg").textContent = "Pick a date and time."; return; }
+  if (!$("#sWhen").value) { $("#smsg").textContent = "Pick a date and time first."; $("#smsg").className = "msg bad"; return; }
   const r = await post("/schedules", { project_id: $("#sProject").value ? +$("#sProject").value : null, angle: $("#sAngle").value,
     run_at: new Date($("#sWhen").value).toISOString(), every_days: $("#sEvery").value ? +$("#sEvery").value : null });
-  $("#smsg").textContent = r.ok ? "Scheduled." : "Failed."; loadSchedules();
+  $("#smsg").textContent = r.ok ? "Scheduled." : "That didn't work."; $("#smsg").className = "msg " + (r.ok ? "ok" : "bad"); loadSchedules();
 };
 $("#tick").onclick = async (e) => {
   e.target.disabled = true; $("#tickmsg").textContent = "Checking...";
-  const r = await post("/cron/tick"); $("#tickmsg").textContent = r.ok ? JSON.stringify(await r.json()) : "failed";
-  e.target.disabled = false; loadPosts(); loadSchedules();
+  const r = await post("/cron/tick"); $("#tickmsg").textContent = r.ok ? "Done." : "That didn't work."; e.target.disabled = false; loadPosts(); loadSchedules();
 };
 
-const GROUPS = { "AI provider (any provider's API key)": ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY", "LLM_BASE_URL"],
-  "Email approvals (Gmail app password or any SMTP/IMAP mailbox)": ["MAIL_USER", "MAIL_PASSWORD", "MAIL_TO", "SMTP_HOST", "IMAP_HOST"],
-  "X": ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"], "LinkedIn": ["LINKEDIN_ACCESS_TOKEN"] };
+/* ---------- settings ---------- */
+const CARDS = [
+  { title: "AI (writes your drafts)", test: "ai", intro: "Pick any AI provider and paste your key. Megamind only uses it to sort your items and write drafts.",
+    fields: { LLM_PROVIDER: ["AI provider", ""], LLM_MODEL: ["Model name", "Copy the exact name from your provider, e.g. gemini-3.8-flash"], LLM_API_KEY: ["API key", ""], LLM_BASE_URL: ["Web address (only if you chose \"custom\")", "Leave empty for every other provider; it is filled in for you."] },
+    help: `<ol><li>Gemini: open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>, click <b>Create API key</b>, copy it. Choose provider <b>gemini</b> here. The web address is already built in. For the model name, copy the exact id shown in AI Studio.</li>
+      <li>OpenAI: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>. Anthropic: <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. OpenRouter: <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>. Groq: <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>.</li>
+      <li>Something else? Choose <b>custom</b> and enter its OpenAI-compatible web address (it usually ends in <code>/v1</code>).</li><li>Press <b>Save</b>, then <b>Test</b>.</li></ol>` },
+  { title: "Email (drafts to you, replies back)", test: "email", intro: "Megamind emails you each draft and reads your reply. It uses a normal mailbox with an app password, so there is nothing else to sign up for.",
+    fields: { MAIL_USER: ["Gmail address Megamind sends from", "Your own Gmail works fine, or make a new one just for this."], MAIL_PASSWORD: ["App password", "A 16-letter code from Google. Not your normal password."], MAIL_TO: ["Send drafts to", "Your own address. Leave empty to email the address above."] },
+    advanced: { SMTP_HOST: ["Outgoing mail server", "Only if not Gmail, e.g. smtp.office365.com"], IMAP_HOST: ["Incoming mail server", "Only if not Gmail, e.g. outlook.office365.com"] },
+    help: `<ol><li>Turn on 2-Step Verification for the Google account: <a href="https://myaccount.google.com/security" target="_blank" rel="noopener">myaccount.google.com/security</a>.</li>
+      <li>Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>, name it "Megamind", click <b>Create</b>, and copy the 16-letter code (spaces don't matter).</li>
+      <li>Paste your Gmail address and that code here. Press <b>Save</b>, then <b>Test</b> and look for the test email.</li>
+      <li>When you get a draft, just hit <b>Reply</b> and type <b>Y</b>. Keep the subject line as it is, it is how Megamind knows which draft you mean.</li></ol>` },
+  { title: "X (Twitter)", intro: "Lets Megamind post to your X account after you approve a draft. X charges per post (about 1.5 cents; 20 cents if a post contains a link, so drafts never include links).",
+    fields: { X_API_KEY: ["API Key", ""], X_API_SECRET: ["API Key Secret", ""], X_ACCESS_TOKEN: ["Access Token", ""], X_ACCESS_SECRET: ["Access Token Secret", ""] },
+    help: `<ol><li>Go to <a href="https://console.x.com" target="_blank" rel="noopener">console.x.com</a>, sign in with the X account you want to post from, and accept the developer terms.</li>
+      <li>Open <b>Apps</b> and click <b>Create App</b>. Give it any name.</li>
+      <li>In the app's settings find <b>User authentication settings</b> and click <b>Set up</b>. Set permissions to <b>Read and write</b>, type to <b>Web App, Automated App or Bot</b>, and put any web address (like your website) in the callback and website boxes. Save.</li>
+      <li>Open the app's <b>Keys and tokens</b>: copy the <b>API Key</b> and <b>API Key Secret</b>, then click <b>Generate</b> next to <b>Access Token</b> and copy the <b>Access Token</b> and <b>Secret</b>. They are only shown once.</li>
+      <li>Important: create the Access Token <i>after</i> setting Read and write. If you changed permissions later, generate a new one, or posting will fail.</li>
+      <li>Buy a few dollars of credit in the console's billing section. Without credit, X refuses to post.</li></ol>` },
+  { title: "LinkedIn", test: "linkedin", intro: "Lets Megamind post to your own LinkedIn profile after you approve a draft. LinkedIn tokens expire after about 60 days, so you paste a new one then.",
+    fields: { LINKEDIN_ACCESS_TOKEN: ["Access token", ""] },
+    help: `<ol><li>Go to <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">linkedin.com/developers/apps</a> and click <b>Create app</b>. LinkedIn asks for a Company Page to attach it to. Any page you manage works, or make a quick one. You still post as yourself.</li>
+      <li>Open the app's <b>Settings</b> tab and click <b>Verify</b> next to the page (a page admin confirms with a link).</li>
+      <li>On the <b>Products</b> tab, request <b>Share on LinkedIn</b> and <b>Sign In with LinkedIn using OpenID Connect</b>. Both are normally approved instantly.</li>
+      <li>Open the <a href="https://www.linkedin.com/developers/tools/oauth" target="_blank" rel="noopener">OAuth token generator</a>, choose your app, tick <b>openid</b>, <b>profile</b> and <b>w_member_social</b>, click <b>Request access token</b>, and allow it.</li>
+      <li>Copy the token it shows, paste it here, press <b>Save</b>, then <b>Test</b>.</li></ol>` },
+  { title: "Automatic checking", intro: "Megamind needs to look at your inbox for replies and see which posts are due. A free timer service can poke Megamind every few minutes.",
+    custom: "checking" },
+];
 async function loadSettings() {
-  const { fields, providers } = await (await fetch("/settings")).json(), box = $("#settings"); box.replaceChildren();
-  const inputs = {};
-  for (const [title, names] of Object.entries(GROUPS)) {
-    box.append(el("h3", title));
-    for (const n of names) {
-      const f = fields[n], row = el("div"); row.append(el("label", n + "  ", "mute"));
-      const inp = n === "LLM_PROVIDER" ? el("select") : el("input");
-      if (n === "LLM_PROVIDER") { inp.append(new Option("(choose)", "")); for (const p of providers) inp.append(new Option(p, p)); inp.value = f.value || ""; inp.style.width = "auto"; }
-      else { inp.type = f.secret ? "password" : "text"; inp.autocomplete = "off"; inp.value = f.secret ? "" : f.value || ""; inp.placeholder = f.secret ? (f.set ? "saved (" + f.source + "), type to replace" : "not set") : ""; }
-      inputs[n] = inp; row.append(inp);
-      if (f.set && f.source === "page") { const c = el("button", "Clear"); c.onclick = async () => { await fetch("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [n]: null }) }); loadSettings(); }; row.append(" ", c); }
-      box.append(row);
+  const { fields, providers } = await (await fetch("/settings")).json(); await loadStatus();
+  const box = $("#settings"); box.replaceChildren();
+  for (const c of CARDS) {
+    const card = el("div", null, "card"); card.append(el("h2", c.title), el("p", c.intro, "hint"));
+    if (c.custom === "checking") { checking(card); box.append(card); continue; }
+    const inputs = {};
+    const add = (name, [label, hint], parent) => {
+      const f = fields[name]; parent.append(el("label", label)); let inp;
+      if (name === "LLM_PROVIDER") {
+        inp = el("select"); inp.append(new Option("Choose a provider...", "")); for (const p of Object.keys(providers)) inp.append(new Option(p, p)); inp.value = f.value || "";
+        const note = el("div", "", "hint"); const upd = () => { note.textContent = inp.value && providers[inp.value] ? "Web address used: " + providers[inp.value] : inp.value === "custom" ? "Enter the web address below." : ""; }; inp.onchange = upd; upd();
+        parent.append(inp, note); inputs[name] = inp; return;
+      }
+      inp = el("input"); inp.type = f.secret ? "password" : "text"; inp.autocomplete = "off"; inp.value = f.secret ? "" : f.value || "";
+      inp.placeholder = f.secret ? (f.set ? "Saved. Type to replace." : "Paste it here") : "";
+      parent.append(inp); if (hint) parent.append(el("div", hint, "hint"));
+      if (f.set && f.source === "page") { const cl = el("button", "Remove saved value", "small"); cl.onclick = async () => { await fetch("/settings", { method: "PUT", headers: J, body: JSON.stringify({ [name]: null }) }); loadSettings(); }; parent.append(cl); }
+      inputs[name] = inp;
+    };
+    for (const [n, l] of Object.entries(c.fields)) add(n, l, card);
+    if (c.advanced) { const d = el("details"); d.append(el("summary", "Not using Gmail?")); for (const [n, l] of Object.entries(c.advanced)) add(n, l, d); card.append(d); }
+    const row = el("p"), save = el("button", "Save", "primary"), msg = el("span", "", "msg"); row.append(save);
+    save.onclick = async () => {
+      const body = {}; for (const [n, i] of Object.entries(inputs)) if (i.value.trim()) body[n] = i.value.trim();
+      const r = await fetch("/settings", { method: "PUT", headers: J, body: JSON.stringify(body) });
+      msg.textContent = r.ok ? "Saved." : "Could not save."; msg.className = "msg " + (r.ok ? "ok" : "bad"); if (r.ok) { setTimeout(loadSettings, 700); }
+    };
+    if (c.test) {
+      const t = el("button", "Test"); row.append(" ", t); t.onclick = async () => {
+        t.disabled = true; msg.textContent = "Testing..."; msg.className = "msg mute";
+        const j = await (await post("/test/" + c.test)).json(); msg.textContent = j.message; msg.className = "msg " + (j.ok ? "ok" : "bad"); t.disabled = false;
+      };
     }
+    row.append(msg); card.append(row);
+    const d = el("details"); d.append(el("summary", "Where do I get these?")); const h = el("div"); h.innerHTML = c.help; d.append(h); card.append(d);
+    box.append(card);
   }
-  const save = el("button", "Save settings"), msg = el("span", "", "mute");
-  save.onclick = async () => {
-    const body = {}; for (const [n, i] of Object.entries(inputs)) if (i.value.trim()) body[n] = i.value.trim();
-    const r = await fetch("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    msg.textContent = r.ok ? " Saved." : " Failed."; if (r.ok) loadSettings();
-  };
-  box.append(save, msg, el("p", "Secrets are stored in your database and never shown again. A saved value overrides a Vercel env var of the same name.", "mute"));
+  box.append(el("p", "Everything you save here is kept in your own database and is never shown again. A value saved here overrides one set in Vercel.", "hint"));
+}
+function checking(card) {
+  const s = STATUS, fresh = s.last_check && Date.now() - new Date(s.last_check) < 36 * 3600e3;
+  card.append(el("p", "Last check: " + ago(s.last_check) + (fresh ? "" : ". Not running automatically yet."), fresh ? "ok" : "bad"));
+  const d = el("details"); d.open = !fresh; d.append(el("summary", "Turn it on (free, 2 minutes)"));
+  const h = el("div"); h.innerHTML = `<ol><li>Open <a href="https://cron-job.org" target="_blank" rel="noopener">cron-job.org</a> and make a free account.</li>
+    <li>Click <b>Create cronjob</b>, paste your private link (below) as the web address, and set it to run <b>every 5 minutes</b>. Save.</li>
+    <li>Come back here in 5 minutes: the last check time above should update.</li></ol>
+    <p class="hint">Without this, Megamind still checks once a day on its own, so a reply could wait up to a day. The <b>Check my inbox now</b> button on the Posts tab always works too. Your private link is a password, so don't share it.</p>`;
+  d.append(h);
+  const link = el("code", s.check_url), copy = el("button", "Copy link", "small"); copy.onclick = () => { navigator.clipboard.writeText(s.check_url); copy.textContent = "Copied"; };
+  d.append(link, " ", copy); card.append(d);
 }
 
-const patch = (url, body) => fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-let project = null, projs = [], showIgnored = false;
-async function loadProjects() {
-  projs = await (await fetch("/projects")).json(); fillSelects();
-  const box = $("#projects"); box.replaceChildren();
-  if (!projs.length) box.append(el("p", "No projects yet. After a sync, click the button above (needs an AI provider key in Settings, or a VOYAGE_API_KEY in Vercel).", "mute"));
-  for (const p of projs) {
-    const b = el("button", p.name + " (" + p.item_count + ")"); b.style.margin = "0 6px 6px 0";
-    if (p.id === project) b.style.borderColor = "var(--accent)";
-    b.onclick = () => { project = project === p.id ? null : p.id; loadProjects(); loadItems(); };
-    box.append(b);
-  }
-  const cur = projs.find((p) => p.id === project);
-  $("#filter").textContent = cur ? "in " + cur.name : "";
-  if (cur) {
-    const r = el("button", "Rename");
-    r.onclick = async () => { const n = prompt("Project name", cur.name); if (n) { await patch("/projects/" + cur.id, { name: n }); loadProjects(); } };
-    box.append(el("div", cur.summary || "", "mute"), r);
-  }
-}
-$("#toggleIgn").onclick = (e) => { showIgnored = !showIgnored; e.target.textContent = showIgnored ? "Show items" : "Show ignored"; loadItems(); };
-$("#cluster").onclick = async () => {
-  const r = await fetch("/cluster", { method: "POST" }), j = await r.json();
-  $("#clustermsg").textContent = r.ok ? j.items_placed + " items placed, " + j.projects_created + " new projects" : j.detail;
-  loadProjects(); loadItems();
-};
-
-let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(loadItems, 250); };
-loadSync(); loadProjects().then(loadItems); loadPosts(); loadSchedules(); loadSettings();
+/* ---------- start ---------- */
+const start = (location.hash || "#start").slice(1);
+loadSync(); loadProjects().then(loadItems); show(["start", "library", "posts", "settings"].includes(start) ? start : "start");
 </script>
 </body>
 </html>

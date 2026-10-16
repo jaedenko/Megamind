@@ -14,6 +14,9 @@ async def password_gate(request: Request, call_next):
     # the app holds your data and will post for you, so it never serves without APP_PASSWORD (browser login popup, any username)
     pw = os.environ.get("APP_PASSWORD")
     cron = os.environ.get("CRON_SECRET")  # Vercel Cron (and any scheduler you add) calls /cron/tick with this instead of the password
+    if request.url.path == "/cron/tick" and request.query_params.get("key") and secrets.compare_digest(
+            request.query_params["key"].encode(), config.cron_key().encode()):
+        return await call_next(request)  # the private check link shown in Settings
     if cron and request.url.path == "/cron/tick" and secrets.compare_digest(request.headers.get("authorization", "").encode(), f"Bearer {cron}".encode()):
         return await call_next(request)
     if not pw:
@@ -88,7 +91,7 @@ def rename_project(id: int, body: dict):
 
 @app.get("/settings")
 def get_settings():
-    return {"fields": config.status(), "providers": list(llm.PRESETS)}
+    return {"fields": config.status(), "providers": {k: v[0] for k, v in llm.PRESETS.items()}}
 
 @app.put("/settings")
 def put_settings(body: dict):  # {"LLM_API_KEY": "sk-..."} sets; {"LLM_API_KEY": null} clears; "" leaves as is
@@ -133,3 +136,40 @@ def del_schedule(id: int):
 @app.post("/cron/tick")
 def tick():  # Vercel Cron GETs this; the "Check now" button POSTs it
     return posts.tick()
+
+@app.get("/status")
+def setup_status(request: Request):
+    """What the Start-here checklist shows."""
+    cfg = config.load()
+    from . import mail, social
+    base = str(request.base_url)
+    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base: base = "https://" + base[7:]  # behind Vercel's proxy
+    one = lambda q_: q(q_)[0]
+    with connect() as db:
+        lt = db.execute("SELECT value FROM settings WHERE key='last_tick'").fetchone()
+    return {"items": one("SELECT count(*) AS n FROM items WHERE ignored IS NOT TRUE")["n"], "projects": one("SELECT count(*) AS n FROM projects")["n"],
+            "ai": llm.on(cfg), "email": mail.configured(cfg), "x": social.x_ready(cfg), "linkedin": social.linkedin_ready(cfg),
+            "last_check": lt["value"] if lt else None, "daily_only_cron": True,
+            "check_url": f"{base}cron/tick?key={config.cron_key()}",
+            "scheduled": one("SELECT count(*) AS n FROM schedules WHERE active")["n"], "posted": one("SELECT count(*) AS n FROM posts WHERE status='published'")["n"]}
+
+@app.post("/test/{what}")
+def test_connection(what: str):
+    """One-click checks used by the Settings page. Every check is free (no post is made)."""
+    cfg = config.load()
+    from . import mail, social
+    try:
+        if what == "ai":
+            return {"ok": True, "message": "The AI replied: " + llm.ask("Reply with the single word: ok", cfg).strip()[:60]}
+        if what == "email":
+            if not mail.configured(cfg): return {"ok": False, "message": "Fill in the Gmail address and app password first, and press Save."}
+            mail.send(cfg, "Megamind test email", "If you can read this, Megamind can send you drafts. You can delete this email.")
+            return {"ok": True, "message": f"Test email sent to {mail.owner(cfg)}. Check your inbox."}
+        if what == "linkedin":
+            import httpx
+            r = httpx.get("https://api.linkedin.com/v2/userinfo", headers={"Authorization": "Bearer " + (cfg("LINKEDIN_ACCESS_TOKEN") or "")}, timeout=30)
+            if r.status_code != 200: return {"ok": False, "message": f"LinkedIn said {r.status_code}. The token is missing, expired, or lacks the openid scope."}
+            return {"ok": True, "message": "Connected as " + (r.json().get("name") or "your LinkedIn account")}
+    except Exception as e:
+        return {"ok": False, "message": str(e)[:300]}
+    raise HTTPException(404)

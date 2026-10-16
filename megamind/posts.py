@@ -140,6 +140,7 @@ def tick():
     try:
         if not db.execute("SELECT pg_try_advisory_lock(7003) AS ok").fetchone()["ok"]: return {"skipped": "another run is in progress"}
         cfg, out, now = config.load(), {}, datetime.now(timezone.utc)
+        db.execute("INSERT INTO settings VALUES('last_tick', %s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now.isoformat(),))
         steps = [("drafted", lambda: _schedules(db, cfg, now)), ("resent", lambda: _resend(db, cfg)),
                  ("replies", lambda: _replies(db, cfg)), ("posted", lambda: _post_approved(db, cfg))]
         for name, f in steps:

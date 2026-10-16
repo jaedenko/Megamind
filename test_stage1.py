@@ -362,8 +362,17 @@ def test_cron_endpoint_auth_and_settings_and_posts_endpoints():
     assert c.get("/cron/tick", headers={"Authorization": "Bearer nope"}).status_code == 401
     assert c.get("/sync", headers={"Authorization": "Bearer s3cret"}).status_code == 401  # the cron secret opens only /cron/tick
     del os.environ["CRON_SECRET"]
+    st = c.get("/status", headers=ok).json()  # feeds the Start-here checklist
+    assert st["ai"] is False and st["email"] is False and st["last_check"] is not None and st["items"] == 0 and "/cron/tick?key=" in st["check_url"]
+    key = st["check_url"].split("key=")[1]
+    assert c.get(f"/cron/tick?key={key}").status_code == 200 and c.get("/cron/tick?key=wrong").status_code == 401  # the private link works without the password
+    assert c.get(f"/sync?key={key}").status_code == 401
+    assert c.post("/test/email", headers=ok).json()["ok"] is False and "app password" in c.post("/test/email", headers=ok).json()["message"]
+    from megamind import llm; llm.ask = lambda prompt, cfg=None: "ok"
+    assert c.post("/test/ai", headers=ok).json() == {"ok": True, "message": "The AI replied: ok"}
+    assert c.post("/test/linkedin", headers=ok).json()["ok"] is False and c.post("/test/nonsense", headers=ok).status_code == 404
     r = c.put("/settings", json={"LLM_API_KEY": "sk-very-secret", "LLM_PROVIDER": "groq"}, headers=ok).json()
-    assert "sk-very-secret" not in str(r) and r["fields"]["LLM_API_KEY"]["set"] and "groq" in r["providers"]
+    assert "sk-very-secret" not in str(r) and r["fields"]["LLM_API_KEY"]["set"] and r["providers"]["gemini"].endswith("/v1beta/openai")
     assert c.put("/settings", json={"BOGUS": "x"}, headers=ok).status_code == 400
     c.put("/settings", json={"LLM_API_KEY": None, "LLM_PROVIDER": None}, headers=ok)
     run_at = "2030-01-01T00:00:00Z"

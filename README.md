@@ -14,7 +14,7 @@ Set every one in **Vercel dashboard > your project > Settings > Environment Vari
 | `SITE_URL`, `SITE1_URL`, `SITE2_URL`... | for website | Site roots, e.g. `https://example.com`; any `SITE<n>_URL` is read. Reads `/sitemap.xml`, falls back to `/feed.xml` or `SITE_FEED`. |
 | `SITE_FEED` | optional | Full URL of an RSS feed if it isn't `/feed.xml`. |
 | `SITE_MAX_PAGES` | optional | Max website pages per sync (default 50). |
-| `CRON_SECRET` | for scheduling | Any long random string. Vercel Cron sends it automatically; an external pinger must send `Authorization: Bearer <it>` to `/cron/tick`. |
+| `CRON_SECRET` | optional | Only for Vercel's own daily cron: any long random string (Vercel sends it automatically). Not needed if you use the private check link from Settings > Automatic checking. |
 
 **Settings box (in the web page, no redeploy needed).** The AI provider, email, X and LinkedIn values below can be typed into the page's **Settings** section instead of Vercel. A saved value overrides an env var of the same name; secrets are stored in your database and never shown again.
 
@@ -47,7 +47,9 @@ Open your Vercel URL, enter the password, click **Re-sync** next to a source. Re
 4. Replies are only accepted from `MAIL_TO`, and only if they carry the secret tag in the subject line (keep the subject when replying).
 5. If one platform fails (e.g. X out of credits) the other is posted once and only the failed one is retried on the next check.
 
-**How often does it check?** `/cron/tick` does the work: due schedules, new replies, retries. `vercel.json` runs it once a day, because Vercel Hobby rejects anything more frequent at deploy time. That means a reply can wait up to a day. For quick turnaround: on Vercel Pro change the schedule in `vercel.json` to `*/5 * * * *`; on Hobby use a free external pinger (e.g. cron-job.org, every 5 minutes) that GETs `https://<your site>/cron/tick` with header `Authorization: Bearer <CRON_SECRET>`. If Vercel Authentication blocks that request, either add the project's Protection Bypass for Automation header (`x-vercel-protection-bypass`) or turn Vercel Authentication off for production (the site is already behind `APP_PASSWORD`). The **Check now** button runs the same thing on demand.
+**The page.** Four tabs: *Start here* (setup checklist), *My work* (sources, projects, items), *Posts* (write now, schedule, approvals) and *Settings* (each integration has a Save button, a Test button where a free test exists, and step-by-step "Where do I get these?" help).
+
+**How often does it check?** `/cron/tick` does the work: due schedules, new replies, retries. `vercel.json` runs it once a day, because Vercel Hobby rejects anything more frequent at deploy time. That means a reply can wait up to a day. For quick turnaround: on Vercel Pro change the schedule in `vercel.json` to `*/5 * * * *`; on Hobby use a free external pinger (e.g. cron-job.org, every 5 minutes) pointed at the private check link shown in Settings > Automatic checking (`/cron/tick?key=...`, made automatically; it opens only that one endpoint). If Vercel Authentication blocks that request, either add the project's Protection Bypass for Automation header (`x-vercel-protection-bypass`) or turn Vercel Authentication off for production (the site is already behind `APP_PASSWORD`). The **Check now** button runs the same thing on demand.
 
 ## Tests (for development)
 `DATABASE_URL=<throwaway postgres> python test_stage1.py` (wipes that database's `public` schema). One test needs pgvector and is skipped on a plain Postgres.

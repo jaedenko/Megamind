@@ -31,3 +31,10 @@ def save(values):
             if name not in FIELDS: raise KeyError(name)
             if v is None: db.execute("DELETE FROM settings WHERE key=%s", ("cfg:" + name,))
             elif str(v).strip(): db.execute("INSERT INTO settings VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", ("cfg:" + name, str(v).strip()))
+
+def cron_key():
+    """A private random key, made on first use, that lets a free pinger call /cron/tick?key=... without the site password."""
+    import secrets
+    with connect() as db:
+        db.execute("INSERT INTO settings VALUES('cron_key', %s) ON CONFLICT DO NOTHING", (secrets.token_urlsafe(24),))
+        return db.execute("SELECT value FROM settings WHERE key='cron_key'").fetchone()["value"]
