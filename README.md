@@ -11,7 +11,7 @@ Set every one in **Vercel dashboard > your project > Settings > Environment Vari
 | `APP_PASSWORD` | yes | Make one up. The browser asks for it when you open the site (username can be anything). Without it the site refuses to load. |
 | `GITHUB_TOKEN` | for GitHub | github.com/settings/tokens > fine-grained token, "All repositories" (or pick some), read-only for Contents, Metadata and Issues/Releases. A classic token with `repo` scope also works. |
 | `NOTION_TOKEN` | for Notion | notion.so/profile/integrations > new internal integration > copy the secret. Then on each page or database to pull: `...` menu > Connections > add your integration. Only shared pages sync, with all nested text; sub-pages sync as their own items. |
-| `SITE_URL`, `SITE1_URL`, `SITE2_URL`... | for website | Site roots, e.g. `https://example.com`; any `SITE<n>_URL` is read. Reads `/sitemap.xml`, falls back to `/feed.xml` or `SITE_FEED`. |
+| `SITE_URL`, `SITE1_URL`, `SITE2_URL`... | optional | (You can also add websites in the page: My work > Your websites.)  Site roots, e.g. `https://example.com`; any `SITE<n>_URL` is read. Reads `/sitemap.xml`, falls back to `/feed.xml` or `SITE_FEED`. |
 | `SITE_FEED` | optional | Full URL of an RSS feed if it isn't `/feed.xml`. |
 | `SITE_MAX_PAGES` | optional | Max website pages per sync (default 50). |
 | `CRON_SECRET` | optional | Only for Vercel's own daily cron: any long random string (Vercel sends it automatically). Not needed if you use the private check link from Settings > Automatic checking. |
@@ -22,7 +22,7 @@ Set every one in **Vercel dashboard > your project > Settings > Environment Vari
 |---|---|
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | Any provider: openai, anthropic, openrouter, groq, together, deepseek, mistral, xai, gemini, opencode, opencode-go, or `custom` plus `LLM_BASE_URL` for any OpenAI-compatible server. The older `OPENCODE_API_KEY` / `ANTHROPIC_API_KEY` env vars still work. |
 | `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_TO` | The mailbox Megamind sends drafts from and reads replies in. Gmail: turn on 2-step verification, then Google Account > Security > App passwords. `MAIL_TO` is you (defaults to `MAIL_USER`, i.e. you email yourself). Optional `SMTP_HOST` / `IMAP_HOST` for non-Gmail. |
-| `LINKEDIN_ACCESS_TOKEN` | linkedin.com/developers > your app > Products: add "Share on LinkedIn" and "Sign In with LinkedIn using OpenID Connect", then Auth > OAuth token generator with scopes `openid profile w_member_social`. Tokens last about 60 days; paste the new one in Settings when it expires. Optional `LINKEDIN_VERSION` (YYYYMM, default 202608). |
+| `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | From your LinkedIn app's Auth tab. Add `https://<your site>/linkedin/callback` as an authorized redirect URL, then press **Connect LinkedIn** in Settings: Megamind does the sign-in itself (LinkedIn's own token-generator page sometimes fails with "Oops. An unknown error has occurred"). The connection lasts about 60 days and Megamind emails you a week before it ends. `LINKEDIN_ACCESS_TOKEN` can still be pasted by hand. Optional `LINKEDIN_VERSION` (YYYYMM, default 202608). |
 
 | `VOYAGE_API_KEY` | optional | dash.voyageai.com. Meaning-based search, plus a no-LLM way to group items. Needs the pgvector extension (Neon has it). |
 | `MEGAMIND_DISABLE` | optional | Comma list of sources to switch off, e.g. `notion,website`. |
@@ -52,6 +52,9 @@ Open your Vercel URL, enter the password, click **Re-sync** next to a source. Re
 
 ## Tests (for development)
 `DATABASE_URL=<throwaway postgres> python test_stage1.py` (wipes that database's `public` schema). One test needs pgvector and is skipped on a plain Postgres.
+
+## Websites
+Add or remove websites on the **My work** tab (stored in the database; ones set in Vercel can only be removed there). Megamind reads each site's `sitemap.xml` (including sitemap indexes) or `feed.xml`, and reads the page itself when a site has neither. Only public addresses are accepted; one unreachable site is reported without hiding the others.
 
 ## Adding a source
 Add `megamind/connectors/yours.py` with `name`, `configured()` and `fetch()`, yielding `{ext_id, title, [type, description, date, url, media[], tags[], metadata{}]}`, then add it to the list in `megamind/connectors/__init__.py`. No schema change needed.

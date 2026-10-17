@@ -45,23 +45,42 @@ class Website:
     def configured(self):
         return bool(self._bases())
 
-    def _bases(self):  # SITE_URL, SITE1_URL, SITE2_URL, ... one per site
+    @staticmethod
+    def env_bases():  # SITE_URL, SITE1_URL, SITE2_URL, ... set in Vercel
         return [v.rstrip("/") for k, v in sorted(os.environ.items()) if re.fullmatch(r"SITE\d*_URL", k) and v]
 
+    def _bases(self):  # plus the sites you added in the web page
+        from .. import config
+        return list(dict.fromkeys(self.env_bases() + config.sites()))
+
+    def _rows_for(self, c, base):
+        for feed in (base + "/sitemap.xml", os.environ.get("SITE_FEED") or base + "/feed.xml"):
+            r = c.get(feed)
+            if r.status_code != 200: continue
+            try: root = ET.fromstring(r.content)
+            except ET.ParseError: continue
+            if root.tag.rsplit("}", 1)[-1] == "sitemapindex":  # many site builders split the sitemap into several files
+                rows = []
+                for loc in [(e.text or "").strip() for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "loc"][:10]:
+                    child = c.get(loc)
+                    if child.status_code == 200: rows += [x for x in _rows(child.content) if x[0]]
+            else:
+                rows = [x for x in _rows(r.content) if x[0]]
+            if rows: return rows
+        return [(base, None)]  # one-page sites (Carrd and friends) have no sitemap: read the page itself
+
     def fetch(self):
-        cap = int(os.environ.get("SITE_MAX_PAGES", 50))
+        cap, errors = int(os.environ.get("SITE_MAX_PAGES", 50)), []
         with httpx.Client(follow_redirects=True, timeout=30) as c:
             for base in self._bases():
-                rows = []
-                for feed in (base + "/sitemap.xml", os.environ.get("SITE_FEED") or base + "/feed.xml"):
-                    r = c.get(feed)
-                    if r.status_code == 200:
-                        rows = [x for x in _rows(r.content) if x[0]]
-                        if rows: break
-                for url, date in rows[:cap]:
-                    r = c.get(url)
-                    if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
-                        continue
-                    title, text, img = extract(r.text)
-                    yield {"ext_id": url, "type": "page", "title": title or url, "description": text, "date": date, "url": url,
-                           "media": [img] if img else []}
+                try:
+                    for url, date in self._rows_for(c, base)[:cap]:
+                        r = c.get(url)
+                        if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
+                            continue
+                        title, text, img = extract(r.text)
+                        yield {"ext_id": url, "type": "page", "title": title or url, "description": text, "date": date, "url": url,
+                               "media": [img] if img else []}
+                except Exception as e:  # keep going: one unreachable site must not hide the others
+                    errors.append(f"{base}: {e!r}"[:200])
+        if errors: raise RuntimeError("; ".join(errors))

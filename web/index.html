@@ -91,6 +91,10 @@
     <h2>1. Your sources</h2>
     <p class="hint">Where Megamind finds your work. Press <b>Update</b> to pull in the latest. Nothing is ever changed at the source.</p>
     <table id="sync"><thead><tr><th>Source</th><th>Status</th><th>Last updated</th><th>Items</th><th></th></tr></thead><tbody></tbody></table>
+    <h3>Your websites</h3>
+    <div id="sites"></div>
+    <div class="row" style="margin-top:8px"><div><input id="siteNew" placeholder="Add a website, e.g. https://yourname.com" autocomplete="off"></div><button id="siteAdd" class="primary">Add website</button></div>
+    <p class="hint">Megamind reads every page in the site's sitemap or feed. A one-page site works too. Your portfolio, blog or project pages are all fine.</p>
   </div>
   <div class="card">
     <h2>2. Your projects</h2>
@@ -197,14 +201,14 @@ async function loadStatus() {
 }
 
 /* ---------- my work ---------- */
-const NEEDS = { github: "GITHUB_TOKEN", notion: "NOTION_TOKEN", website: "SITE_URL" };
+const NEEDS = { github: "GITHUB_TOKEN", notion: "NOTION_TOKEN", website: "a website below" };
 async function loadSync() {
   const rows = await (await fetch("/sync")).json(), tb = $("#sync tbody"); tb.replaceChildren();
   for (const r of rows) {
     const tr = el("tr"); tr.append(el("td", r.source[0].toUpperCase() + r.source.slice(1)));
     let status, cls;
     if (r.disabled) [status, cls] = ["Switched off", "mute"];
-    else if (!r.configured) [status, cls] = ["Not connected: add " + (NEEDS[r.source] || "its key") + " in Vercel", "mute"];
+    else if (!r.configured) [status, cls] = [r.source === "website" ? "No websites yet. Add one below." : "Not connected: add " + NEEDS[r.source] + " in Vercel", "mute"];
     else if (r.ok == null) [status, cls] = ["Connected, not updated yet", "mute"];
     else if (r.ok) [status, cls] = ["Up to date", "ok"];
     else [status, cls] = ["Problem: " + r.error, "bad"];
@@ -214,6 +218,25 @@ async function loadSync() {
     td.append(b); tr.append(td); tb.append(tr);
   }
 }
+
+async function loadSites() {
+  const rows = await (await fetch("/sites")).json(), box = $("#sites"); box.replaceChildren();
+  if (!rows.length) box.append(el("p", "None yet.", "mute"));
+  for (const r of rows) {
+    const d = el("div", null, "item"), a = el("a", r.url); a.href = r.url; a.target = "_blank"; a.rel = "noopener"; d.append(a, " ");
+    if (r.source === "page") { const b = el("button", "Remove", "small"); b.onclick = async () => { await fetch("/sites?url=" + encodeURIComponent(r.url), { method: "DELETE" }); toast("Removed. Items already collected stay until you ignore them."); loadSites(); loadSync(); }; d.append(b); }
+    else d.append(el("span", "set in Vercel", "mute"));
+    box.append(d);
+  }
+}
+$("#siteAdd").onclick = async (e) => {
+  const v = $("#siteNew").value.trim(); if (!v) return;
+  e.target.disabled = true; const r = await post("/sites", { url: v }), j = await r.json();
+  if (!r.ok) { toast(j.detail, false); e.target.disabled = false; return; }
+  $("#siteNew").value = ""; toast("Added. Reading the site now...");
+  await loadSites(); await fetch("/sync/website", { method: "POST" }); await loadSync(); loadItems(); e.target.disabled = false; toast("Website read. See the items below.");
+};
+$("#siteNew").onkeydown = (e) => { if (e.key === "Enter") $("#siteAdd").click(); };
 
 async function loadProjects() {
   projs = await (await fetch("/projects")).json(); fillSelects();
@@ -328,15 +351,17 @@ const CARDS = [
       <li>Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>, name it "Megamind", click <b>Create</b>, and copy the 16-letter code (spaces don't matter).</li>
       <li>Paste your Gmail address and that code here. Press <b>Save</b>, then <b>Test</b> and look for the test email.</li>
       <li>When you get a draft, just hit <b>Reply</b> and type <b>Y</b>. Keep the subject line as it is, it is how Megamind knows which draft you mean.</li></ol>` },
-  { title: "LinkedIn", test: "linkedin", intro: "Lets Megamind post to your own LinkedIn profile after you approve a draft. The token expires after about 60 days. When it does, Megamind emails you and you paste a new one.",
-    fields: { LINKEDIN_ACCESS_TOKEN: ["Access token", "A long string of letters and numbers."] },
-    help: `<ol><li><b>Create the app.</b> Go to <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">linkedin.com/developers/apps</a> and click <b>Create app</b>. Name it "Megamind". LinkedIn asks for a Company Page to attach it to: pick any page you manage, or click <b>Create a new LinkedIn Page</b> for a quick one (name it anything). Add any logo, tick the legal box, click <b>Create app</b>. You still post as yourself, not as the page.</li>
-      <li><b>Verify the app.</b> Open the app's <b>Settings</b> tab, click <b>Verify</b> next to your page, and click <b>Generate URL</b>. Open that link while signed in as an admin of the page, and confirm. Come back and refresh; it should say verified.</li>
-      <li><b>Add the two products.</b> Open the <b>Products</b> tab. Click <b>Request access</b> on <b>Share on LinkedIn</b> and on <b>Sign In with LinkedIn using OpenID Connect</b>. Tick the terms. Both usually turn on right away. If one says "pending", wait and refresh.</li>
-      <li><b>Generate the token.</b> Open <a href="https://www.linkedin.com/developers/tools/oauth" target="_blank" rel="noopener">linkedin.com/developers/tools/oauth</a> and click <b>Create a new access token</b>. Choose your Megamind app. Tick the scopes <b>openid</b>, <b>profile</b> and <b>w_member_social</b> (also <b>email</b> if you like). If <b>w_member_social</b> is missing, step 3 isn't finished. Click <b>Request access token</b>, then <b>Allow</b> on the LinkedIn page.</li>
-      <li><b>Copy it.</b> LinkedIn shows the access token and its expiry date. Copy the whole token (it is very long) and paste it into the box here. Press <b>Save</b>, then <b>Test</b>. It should say "Connected as" followed by your name.</li>
-      <li><b>If the generator complains about a redirect address,</b> open the app's <b>Auth</b> tab, find <b>OAuth 2.0 settings</b>, and add <code>https://www.linkedin.com/developers/tools/oauth/redirect</code> as an authorized redirect URL, then try again.</li>
-      <li><b>If posting later fails with "403",</b> the token was made before a product was approved. Generate a new one after both products show as added.</li></ol>` },
+  { title: "LinkedIn", test: "linkedin", extra: "linkedin", advTitle: "Rather paste an access token yourself?",
+    intro: "Lets Megamind post to your own LinkedIn profile after you approve a draft. You sign in with LinkedIn once (no token to copy). The connection lasts about 60 days; Megamind emails you a week before it ends and you press Reconnect.",
+    fields: { LINKEDIN_CLIENT_ID: ["Client ID", "From your LinkedIn app's Auth tab."], LINKEDIN_CLIENT_SECRET: ["Client Secret", "Also on the Auth tab (Primary Client Secret)."] },
+    advanced: { LINKEDIN_ACCESS_TOKEN: ["Access token", "Only if you already have one. The Connect button fills this in for you."] },
+    help: `<ol><li><b>Create the app.</b> Go to <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">linkedin.com/developers/apps</a> and click <b>Create app</b>. Name it "Megamind". LinkedIn asks for a Company Page: pick any page you manage, or click <b>Create a new LinkedIn Page</b> (any name). Add any logo, tick the legal box, click <b>Create app</b>. You still post as yourself, not as the page.</li>
+      <li><b>Verify the app.</b> On the app's <b>Settings</b> tab click <b>Verify</b> next to your page, click <b>Generate URL</b>, open that link as an admin of the page and confirm.</li>
+      <li><b>Add two products.</b> On the <b>Products</b> tab click <b>Request access</b> on <b>Share on LinkedIn</b> and on <b>Sign In with LinkedIn using OpenID Connect</b>. Both usually turn on right away.</li>
+      <li><b>Copy your keys.</b> Open the app's <b>Auth</b> tab. Copy the <b>Client ID</b> and the <b>Primary Client Secret</b> into the boxes above, then press <b>Save</b>.</li>
+      <li><b>Allow Megamind's return address.</b> Still on the <b>Auth</b> tab, under <b>OAuth 2.0 settings</b>, click the pencil next to <b>Authorized redirect URLs for your app</b>, click <b>Add redirect URL</b>, paste the address shown above (it ends in <code>/linkedin/callback</code>), and click <b>Update</b>. It must match exactly.</li>
+      <li><b>Connect.</b> Come back here, press <b>Connect LinkedIn</b>, and click <b>Allow</b> on LinkedIn's page. You land back on Megamind. Then press <b>Test</b>: it should say "Connected as" and your name.</li>
+      <li><b>Not working?</b> Try a private window with only that one LinkedIn account signed in, and check the Products tab shows both products as added. LinkedIn's own "OAuth token generator" page sometimes just says "Oops. An unknown error has occurred", which is why Megamind does the sign-in itself instead.</li></ol>` },
   { title: "Automatic checking", intro: "Megamind needs to look at your inbox for replies and see which posts are due. A free timer service can poke Megamind every few minutes.",
     custom: "checking" },
 ];
@@ -361,7 +386,8 @@ async function loadSettings() {
       inputs[name] = inp;
     };
     for (const [n, l] of Object.entries(c.fields)) add(n, l, card);
-    if (c.advanced) { const d = el("details"); d.append(el("summary", "Not using Gmail?")); for (const [n, l] of Object.entries(c.advanced)) add(n, l, d); card.append(d); }
+    if (c.extra === "linkedin") linkedinExtra(card, fields);
+    if (c.advanced) { const d = el("details"); d.append(el("summary", c.advTitle || "Not using Gmail?")); for (const [n, l] of Object.entries(c.advanced)) add(n, l, d); card.append(d); }
     const row = el("p"), save = el("button", "Save", "primary"), msg = el("span", "", "msg"); row.append(save);
     save.onclick = async () => {
       const body = {}; for (const [n, i] of Object.entries(inputs)) if (i.value.trim()) body[n] = i.value.trim();
@@ -380,6 +406,17 @@ async function loadSettings() {
   }
   box.append(el("p", "Everything you save here is kept in your own database and is never shown again. A value saved here overrides one set in Vercel.", "hint"));
 }
+function linkedinExtra(card, fields) {
+  const s = STATUS, p = el("p"); p.append(el("b", "Return address to add in LinkedIn: "), el("code", s.linkedin_redirect), " ");
+  const cp = el("button", "Copy", "small"); cp.onclick = () => { navigator.clipboard.writeText(s.linkedin_redirect); toast("Copied."); }; p.append(cp); card.append(p);
+  const ready = fields.LINKEDIN_CLIENT_ID.set && fields.LINKEDIN_CLIENT_SECRET.set, row = el("p");
+  const b = el("button", s.linkedin ? "Reconnect LinkedIn" : "Connect LinkedIn", ready ? "primary" : ""); b.disabled = !ready;
+  b.onclick = () => { location.href = "/linkedin/connect"; }; row.append(b, " ");
+  if (!ready) row.append(el("span", "Save your Client ID and Client Secret first.", "hint"));
+  else if (s.linkedin && s.linkedin_expires) { const days = Math.round((new Date(s.linkedin_expires) - Date.now()) / 86400e3); row.append(el("span", days > 0 ? "Connected. About " + days + " days left." : "The connection has expired. Press Reconnect.", days > 7 ? "ok" : "bad")); }
+  else if (s.linkedin) row.append(el("span", "A token is saved.", "ok"));
+  card.append(row);
+}
 function checking(card) {
   const s = STATUS, fresh = s.last_check && Date.now() - new Date(s.last_check) < 36 * 3600e3;
   card.append(el("p", "Last check: " + ago(s.last_check) + (fresh ? "" : ". Not running automatically yet."), fresh ? "ok" : "bad"));
@@ -395,7 +432,7 @@ function checking(card) {
 
 /* ---------- start ---------- */
 const start = (location.hash || "#start").slice(1);
-loadSync(); loadProjects().then(loadItems); show(["start", "library", "posts", "settings"].includes(start) ? start : "start");
+loadSync(); loadSites(); loadProjects().then(loadItems); show(["start", "library", "posts", "settings"].includes(start) ? start : "start");
 </script>
 </body>
 </html>

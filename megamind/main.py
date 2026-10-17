@@ -1,8 +1,10 @@
-import base64, os, secrets
+import base64, html, os, secrets, time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse
-from . import cluster, config, embed, llm, posts, sync
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from . import cluster, config, embed, llm, posts, social, sync
+from .connectors.website import Website
 from .connectors import CONNECTORS
 from .db import COLS, connect, q, set_ignored
 
@@ -13,6 +15,8 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 async def password_gate(request: Request, call_next):
     # the app holds your data and will post for you, so it never serves without APP_PASSWORD (browser login popup, any username)
     if request.url.path in ("/static/logo.png", "/static/mark.png", "/static/favicon.png"):
+        return await call_next(request)
+    if request.url.path == "/linkedin/callback":  # LinkedIn sends you back here; the one-time `state` made by /linkedin/connect is the protection
         return await call_next(request)
     pw = os.environ.get("APP_PASSWORD")
     cron = os.environ.get("CRON_SECRET")  # Vercel Cron (and any scheduler you add) calls /cron/tick with this instead of the password
@@ -139,13 +143,17 @@ def del_schedule(id: int):
 def tick():  # Vercel Cron GETs this; the "Check now" button POSTs it
     return posts.tick()
 
+def site_base(request):
+    base = str(request.base_url)
+    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base: base = "https://" + base[7:]  # behind Vercel's proxy
+    return base
+
 @app.get("/status")
 def setup_status(request: Request):
     """What the Start-here checklist shows."""
     cfg = config.load()
     from . import mail, social
-    base = str(request.base_url)
-    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base: base = "https://" + base[7:]  # behind Vercel's proxy
+    base = site_base(request)
     one = lambda q_: q(q_)[0]
     with connect() as db:
         lt = db.execute("SELECT value FROM settings WHERE key='last_tick'").fetchone()
@@ -154,6 +162,7 @@ def setup_status(request: Request):
             "last_check": lt["value"] if lt else None, "daily_only_cron": True,
             "check_url": f"{base}cron/tick?key={config.cron_key()}",
             "scheduled": one("SELECT count(*) AS n FROM schedules WHERE active")["n"], "posted": one("SELECT count(*) AS n FROM posts WHERE status='published'")["n"],
+            "linkedin_redirect": base + "linkedin/callback", "linkedin_expires": (q("SELECT value FROM settings WHERE key='li_expires'") or [{}])[0].get("value"),
             "awaiting": one("SELECT count(*) AS n FROM posts WHERE status IN ('draft','emailed','approved')")["n"],
             "next_run": one("SELECT min(next_run) AS t FROM schedules WHERE active")["t"], "last_posted": one("SELECT max(published_at) AS t FROM posts")["t"]}
 
@@ -182,3 +191,56 @@ def test_connection(what: str):
 def static_file(name: str):  # only the three logo files; the gate lets these through without a password
     if name not in ("logo.png", "mark.png", "favicon.png"): raise HTTPException(404)
     return FileResponse(WEB / "static" / name, headers={"Cache-Control": "public, max-age=86400"})
+
+@app.get("/sites")
+def list_sites():
+    env = Website.env_bases()
+    return [{"url": u, "source": "vercel"} for u in env] + [{"url": u, "source": "page"} for u in config.sites() if u not in env]
+
+@app.post("/sites")
+def add_site(body: dict):
+    try:
+        return {"url": config.add_site(body.get("url"))}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@app.delete("/sites")
+def remove_site(url: str):  # sites set in Vercel can only be removed there
+    config.remove_site(url)
+    return {"ok": True}
+
+@app.get("/linkedin/connect")
+def linkedin_connect(request: Request):
+    cfg = config.load()
+    if not (cfg("LINKEDIN_CLIENT_ID") and cfg("LINKEDIN_CLIENT_SECRET")):
+        raise HTTPException(400, "Save your LinkedIn Client ID and Client Secret in Settings first.")
+    state = secrets.token_urlsafe(24)
+    with connect() as db:
+        db.execute("INSERT INTO settings VALUES('li_state', %s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (f"{state}|{time.time()}",))
+    return RedirectResponse(social.auth_url(cfg("LINKEDIN_CLIENT_ID"), site_base(request) + "linkedin/callback", state))
+
+@app.get("/linkedin/callback")
+def linkedin_callback(request: Request, code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    def page(ok, msg):
+        return HTMLResponse(f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Megamind</title>"
+                            f"<body style='font:16px system-ui;background:#060f23;color:#eaf1ff;max-width:520px;margin:12vh auto;padding:0 20px'>"
+                            f"<h2>{'LinkedIn connected' if ok else 'LinkedIn did not connect'}</h2><p>{html.escape(msg)}</p>"
+                            f"<p><a style='color:#27a2ff' href='/#settings'>Back to Megamind</a></p>", status_code=200 if ok else 400)
+    if error:
+        return page(False, f"LinkedIn said: {error_description or error}")
+    with connect() as db:
+        r = db.execute("SELECT value FROM settings WHERE key='li_state'").fetchone()
+        saved, _, ts = (r["value"] if r else "").partition("|")
+        if not (saved and state and secrets.compare_digest(saved.encode(), state.encode())) or time.time() - float(ts or 0) > 600:
+            return page(False, "This sign-in link expired, or it wasn't started from Megamind. Go back and press Connect LinkedIn again.")
+        db.execute("DELETE FROM settings WHERE key='li_state'")  # one use only
+    try:
+        token, secs = social.exchange(config.load(), code, site_base(request) + "linkedin/callback")
+    except Exception as e:
+        return page(False, str(e))
+    config.save({"LINKEDIN_ACCESS_TOKEN": token})
+    with connect() as db:
+        exp = (datetime.now(timezone.utc) + timedelta(seconds=secs)).isoformat()
+        db.execute("INSERT INTO settings VALUES('li_expires', %s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (exp,))
+        db.execute("DELETE FROM settings WHERE key='li_reminded'")
+    return page(True, f"Done. Megamind can post to your LinkedIn for about {secs // 86400} days; it will email you before it expires.")

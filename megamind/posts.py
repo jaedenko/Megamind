@@ -145,7 +145,7 @@ def tick():
         cfg, out, now = config.load(), {}, datetime.now(timezone.utc)
         db.execute("INSERT INTO settings VALUES('last_tick', %s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now.isoformat(),))
         steps = [("drafted", lambda: _schedules(db, cfg, now)), ("resent", lambda: _resend(db, cfg)),
-                 ("replies", lambda: _replies(db, cfg)), ("posted", lambda: _post_approved(db, cfg))]
+                 ("replies", lambda: _replies(db, cfg)), ("posted", lambda: _post_approved(db, cfg)), ("reminders", lambda: _reminders(db, cfg, now))]
         for name, f in steps:
             try: out[name] = f()
             except Exception as e: out[name] = f"error: {e!r}"[:300]
@@ -178,3 +178,13 @@ def _replies(db, cfg):
 
 def _post_approved(db, cfg):
     return sum(post_now(db, cfg, p) == "published" for p in db.execute("SELECT * FROM posts WHERE status='approved'").fetchall())
+
+def _reminders(db, cfg, now):
+    """One email, a week before the LinkedIn connection runs out."""
+    r = db.execute("SELECT value FROM settings WHERE key='li_expires'").fetchone()
+    if not r or not mail.configured(cfg) or datetime.fromisoformat(r["value"]) - now > timedelta(days=7): return 0
+    if db.execute("SELECT 1 FROM settings WHERE key='li_reminded' AND value=%s", (r["value"],)).fetchone(): return 0
+    exp = datetime.fromisoformat(r["value"])
+    mail.send(cfg, "Megamind: reconnect LinkedIn soon", f"Your LinkedIn connection runs out on {exp:%b %d}. Open Megamind > Settings > LinkedIn and press Reconnect. It takes about 10 seconds.\n")
+    db.execute("INSERT INTO settings VALUES('li_reminded', %s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (r["value"],))
+    return 1

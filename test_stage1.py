@@ -343,13 +343,92 @@ def test_full_email_approval_loop():
     with db.connect() as d: d.execute("DELETE FROM posts; DELETE FROM schedules; DELETE FROM items; DELETE FROM projects")
     for k in ("MAIL_USER", "MAIL_PASSWORD"): del os.environ[k]
 
+def test_websites_you_add_in_the_page():
+    from fastapi.testclient import TestClient
+    from megamind import config
+    from megamind.connectors import website
+    from megamind.main import app
+    n = config.normalize_site
+    assert n("example.com/work/") == "https://example.com/work" and n(" HTTP://Foo.dev/?x=1#y ") == "http://Foo.dev"
+    for bad in ("localhost", "http://127.0.0.1:8000", "192.168.1.5", "10.0.0.1", "http://169.254.169.254/latest", "nodots", "x.local", ""):
+        try: n(bad); assert False, bad
+        except ValueError: pass  # the server fetches these, so only public website addresses
+    c, ok = TestClient(app), {"Authorization": "Basic " + base64.b64encode(b"me:pw").decode()}
+    assert c.post("/sites", json={"url": "localhost"}, headers=ok).status_code == 400
+    assert c.post("/sites", json={"url": "good-site.com/"}, headers=ok).json() == {"url": "https://good-site.com"}
+    c.post("/sites", json={"url": "https://good-site.com"}, headers=ok)  # adding twice keeps one
+    os.environ["SITE1_URL"] = "https://env-site.com/"
+    assert c.get("/sites", headers=ok).json() == [{"url": "https://env-site.com", "source": "vercel"}, {"url": "https://good-site.com", "source": "page"}]
+    assert website.Website()._bases() == ["https://env-site.com", "https://good-site.com"]
+
+    pages = {"https://good-site.com/sitemap.xml": b'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>https://good-site.com/s1.xml</loc></sitemap></sitemapindex>',
+             "https://good-site.com/s1.xml": b'<urlset><url><loc>https://good-site.com/a</loc><lastmod>2026-01-01</lastmod></url></urlset>',
+             "https://good-site.com/a": b"<html><head><title>Page A</title></head><body><p>hello</p></body></html>"}
+    class Resp:
+        def __init__(s, body): s.status_code, s.content, s.text, s.headers = (200 if body else 404), body or b"", (body or b"").decode(), {"content-type": "text/html"}
+    class Client:
+        def __init__(s, **kw): pass
+        def __enter__(s): return s
+        def __exit__(s, *a): pass
+        def get(s, url):
+            if "env-site" in url: raise ConnectionError("down")
+            return Resp(pages.get(url))
+    website.httpx.Client = Client
+    got = []
+    try:
+        for it in website.Website().fetch(): got.append(it["title"])
+        assert False, "an unreachable site should be reported"
+    except RuntimeError as e: assert "env-site.com" in str(e)
+    assert got == ["Page A"]  # the sitemap index was followed, and the broken site didn't hide the good one
+    pages.clear(); pages["https://good-site.com"] = b"<html><head><title>One pager</title></head><body>solo</body></html>"; os.environ.pop("SITE1_URL")
+    assert [i["title"] for i in website.Website().fetch()] == ["One pager"]  # no sitemap: the page itself
+    c.delete("/sites?url=https://good-site.com", headers=ok); assert c.get("/sites", headers=ok).json() == []
+
+def test_linkedin_sign_in_flow_and_expiry_reminder():
+    from datetime import datetime, timedelta, timezone
+    from fastapi.testclient import TestClient
+    from urllib.parse import parse_qs, urlparse
+    from megamind import config, mail, posts, social
+    from megamind.main import app
+    c, ok = TestClient(app, follow_redirects=False), {"Authorization": "Basic " + base64.b64encode(b"me:pw").decode()}
+    assert c.get("/linkedin/connect", headers=ok).status_code == 400  # needs the Client ID and Secret first
+    config.save({"LINKEDIN_CLIENT_ID": "cid", "LINKEDIN_CLIENT_SECRET": "csecret"})
+    r = c.get("/linkedin/connect", headers=ok); loc = urlparse(r.headers["location"]); q_ = parse_qs(loc.query)
+    assert r.status_code in (302, 307) and loc.netloc == "www.linkedin.com" and q_["client_id"] == ["cid"] and q_["scope"] == ["openid profile w_member_social"]
+    assert q_["redirect_uri"][0].endswith("/linkedin/callback"); state = q_["state"][0]
+    assert c.get("/linkedin/callback?code=abc&state=forged").status_code == 400  # callback needs no password but needs YOUR one-time state
+    assert "expired" in c.get("/linkedin/callback?code=abc&state=forged").text
+    assert "said: access_denied" not in c.get("/linkedin/callback?error=access_denied&error_description=You+cancelled").text and "You cancelled" in c.get("/linkedin/callback?error=access_denied&error_description=You+cancelled").text
+    seen = []
+    class R:
+        status_code, text = 200, ""
+        def json(s): return {"access_token": "NEWTOKEN", "expires_in": 5184000}
+    social.httpx.post = lambda url, **kw: (seen.append((url, kw)), R())[1]
+    ok_page = c.get(f"/linkedin/callback?code=abc&state={state}")
+    assert ok_page.status_code == 200 and "LinkedIn connected" in ok_page.text and "60 days" in ok_page.text
+    url, kw = seen[-1]
+    assert url == "https://www.linkedin.com/oauth/v2/accessToken" and kw["data"]["code"] == "abc" and kw["data"]["client_secret"] == "csecret" and kw["data"]["redirect_uri"] == q_["redirect_uri"][0]
+    assert config.load()("LINKEDIN_ACCESS_TOKEN") == "NEWTOKEN" and "NEWTOKEN" not in ok_page.text
+    assert c.get(f"/linkedin/callback?code=abc&state={state}").status_code == 400  # the state works once
+    st = c.get("/status", headers=ok).json(); assert st["linkedin"] and st["linkedin_expires"] and st["linkedin_redirect"] == q_["redirect_uri"][0]
+    # a week before it ends you get one email
+    sent = []; os.environ["MAIL_USER"], os.environ["MAIL_PASSWORD"] = "me@x.com", "pw"
+    mail.send = lambda cfg, subject, body, in_reply_to=None: (sent.append(subject), "<m@t>")[1]
+    now = datetime.now(timezone.utc); d = db.connect(); d.autocommit = True
+    assert posts._reminders(d, config.load(), now) == 0 and sent == []  # 60 days left: nothing
+    d.execute("UPDATE settings SET value=%s WHERE key='li_expires'", ((now + timedelta(days=5)).isoformat(),))
+    assert posts._reminders(d, config.load(), now) == 1 and "reconnect LinkedIn" in sent[0] and posts._reminders(d, config.load(), now) == 0 and len(sent) == 1
+    d.execute("DELETE FROM settings WHERE key IN ('li_expires','li_reminded','li_state')"); d.close()
+    config.save({"LINKEDIN_CLIENT_ID": None, "LINKEDIN_CLIENT_SECRET": None, "LINKEDIN_ACCESS_TOKEN": None})
+    for k in ("MAIL_USER", "MAIL_PASSWORD"): del os.environ[k]
+
 def test_cron_endpoint_auth_and_settings_and_posts_endpoints():
     from fastapi.testclient import TestClient
     from megamind.main import app
     c, ok = TestClient(app), {"Authorization": "Basic " + base64.b64encode(b"me:pw").decode()}
     assert c.get("/cron/tick").status_code == 401  # no secret configured: only the password works
     os.environ["CRON_SECRET"] = "s3cret"
-    assert c.get("/cron/tick", headers={"Authorization": "Bearer s3cret"}).json() == {"drafted": 0, "resent": 0, "replies": 0, "posted": 0}
+    assert c.get("/cron/tick", headers={"Authorization": "Bearer s3cret"}).json() == {"drafted": 0, "resent": 0, "replies": 0, "posted": 0, "reminders": 0}
     assert c.get("/cron/tick", headers={"Authorization": "Bearer nope"}).status_code == 401
     assert c.get("/sync", headers={"Authorization": "Bearer s3cret"}).status_code == 401  # the cron secret opens only /cron/tick
     del os.environ["CRON_SECRET"]

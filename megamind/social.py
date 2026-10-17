@@ -1,3 +1,4 @@
+from urllib.parse import urlencode
 import httpx
 
 def _ok(r):
@@ -19,3 +20,16 @@ def post_linkedin(cfg, text):
                              "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [], "thirdPartyDistributionChannels": []},
                              "isReshareDisabledByAuthor": False}))
     return "https://www.linkedin.com/feed/update/" + r.headers["x-restli-id"] + "/"
+
+def auth_url(client_id, redirect, state):
+    return "https://www.linkedin.com/oauth/v2/authorization?" + urlencode(
+        {"response_type": "code", "client_id": client_id, "redirect_uri": redirect, "state": state, "scope": "openid profile w_member_social"})
+
+def exchange(cfg, code, redirect):
+    """Authorization code -> (access token, seconds until it expires)."""
+    r = httpx.post("https://www.linkedin.com/oauth/v2/accessToken", timeout=30, data={
+        "grant_type": "authorization_code", "code": code, "redirect_uri": redirect,
+        "client_id": cfg("LINKEDIN_CLIENT_ID"), "client_secret": cfg("LINKEDIN_CLIENT_SECRET")})
+    if r.status_code != 200: raise RuntimeError(f"LinkedIn refused the sign-in ({r.status_code}): {r.text[:200]}")
+    d = r.json()
+    return d["access_token"], int(d.get("expires_in", 5184000))
