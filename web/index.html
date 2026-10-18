@@ -30,6 +30,7 @@
   #toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; transition:.25s; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--ok); padding:10px 16px; border-radius:8px; max-width:90vw; box-shadow:0 8px 30px #0008; z-index:9; }
   #toast.on { opacity:1; transform:translateX(-50%); } #toast.bad { border-left-color:var(--bad); }
   pre.txt { white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin:6px 0; font:inherit; font-size:14px; }
+  .bigbar { display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin:0 0 18px; } button.big { flex:1 1 280px; font-size:20px; padding:18px 34px; border-radius:14px; box-shadow:0 8px 28px #1f7bf044; }
   footer { margin-top:30px; text-align:center; font-size:13px; color:var(--mute); }
   button.small { padding:1px 9px; font-size:13px; }
   button:disabled { opacity:.5; cursor:default; }
@@ -65,6 +66,11 @@
 <nav id="tabs">
   <button data-tab="start">Start here</button><button data-tab="library">My work</button><button data-tab="posts">Posts<span class="badge" id="badge" hidden></span></button><button data-tab="settings">Settings</button>
 </nav>
+
+<div class="bigbar">
+  <button id="updateAll" class="primary big">Update all</button>
+  <div style="flex:1 1 240px"><div id="updateMsg" class="hint">Pulls in your latest work, sorts it into projects and checks your inbox.</div></div>
+</div>
 
 <!-- START -->
 <section id="tab-start">
@@ -204,6 +210,7 @@ async function loadStatus() {
 const NEEDS = { github: "GITHUB_TOKEN", notion: "NOTION_TOKEN", website: "a website below" };
 async function loadSync() {
   const rows = await (await fetch("/sync")).json(), tb = $("#sync tbody"); tb.replaceChildren();
+  const last = rows.map((r) => r.last_run).filter(Boolean).sort().pop(); if (!updating) $("#updateMsg").textContent = (last ? "Last updated " + ago(last) + ". " : "") + "Pulls in your latest work, sorts it into projects and checks your inbox.";
   for (const r of rows) {
     const tr = el("tr"); tr.append(el("td", r.source[0].toUpperCase() + r.source.slice(1)));
     let status, cls;
@@ -218,6 +225,28 @@ async function loadSync() {
     td.append(b); tr.append(td); tb.append(tr);
   }
 }
+
+const cap = (t) => t[0].toUpperCase() + t.slice(1);
+let updating = false;
+async function updateAll() {
+  if (updating) return; updating = true;
+  const b = $("#updateAll"), msg = $("#updateMsg"), bits = [], bad = []; b.disabled = true; b.textContent = "Updating...";
+  try {
+    const srcs = (await (await fetch("/sync")).json()).filter((r) => r.configured && !r.disabled);
+    if (!srcs.length) toast("Nothing is connected yet. Add GitHub or Notion in Vercel, or a website on My work.", false);
+    for (const r of srcs) {
+      msg.textContent = "Reading " + cap(r.source) + "...";
+      const j = await (await post("/sync/" + r.source)).json(), v = j[r.source];
+      if (typeof v === "number") bits.push(cap(r.source) + " " + v); else bad.push(cap(r.source) + ": " + v);
+    }
+    if (srcs.length) { msg.textContent = "Sorting into projects..."; await post("/cluster"); }  // quietly skipped when no AI is set up
+    msg.textContent = "Checking your inbox..."; await post("/cron/tick");
+    toast(bad.length ? "Updated, but: " + bad.join("; ") : srcs.length ? "Everything is up to date. " + bits.join(" · ") : "Inbox checked.", !bad.length);
+  } catch (e) { toast("Something went wrong: " + e, false); }
+  updating = false; b.disabled = false; b.textContent = "Update all";
+  loadSync(); loadSites(); loadStatus(); loadPosts(); loadProjects().then(loadItems);
+}
+$("#updateAll").onclick = updateAll;
 
 async function loadSites() {
   const rows = await (await fetch("/sites")).json(), box = $("#sites"); box.replaceChildren();
