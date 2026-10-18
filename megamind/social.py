@@ -1,4 +1,4 @@
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 import httpx
 
 def _ok(r):
@@ -23,7 +23,7 @@ def post_linkedin(cfg, text):
 
 def auth_url(client_id, redirect, state):
     return "https://www.linkedin.com/oauth/v2/authorization?" + urlencode(
-        {"response_type": "code", "client_id": client_id, "redirect_uri": redirect, "state": state, "scope": "openid profile w_member_social"})
+        {"response_type": "code", "client_id": client_id, "redirect_uri": redirect, "state": state, "scope": "openid profile w_member_social"}, quote_via=quote)
 
 def exchange(cfg, code, redirect):
     """Authorization code -> (access token, seconds until it expires)."""
@@ -33,3 +33,16 @@ def exchange(cfg, code, redirect):
     if r.status_code != 200: raise RuntimeError(f"LinkedIn refused the sign-in ({r.status_code}): {r.text[:200]}")
     d = r.json()
     return d["access_token"], int(d.get("expires_in", 5184000))
+
+def check_app(cfg, redirect):
+    """Offers LinkedIn a deliberately wrong code to learn whether the Client ID/Secret are accepted. Returns (verdict, LinkedIn's raw words)."""
+    r = httpx.post("https://www.linkedin.com/oauth/v2/accessToken", timeout=30, data={
+        "grant_type": "authorization_code", "code": "megamind-check", "redirect_uri": redirect,
+        "client_id": cfg("LINKEDIN_CLIENT_ID") or "", "client_secret": cfg("LINKEDIN_CLIENT_SECRET") or ""})
+    raw = f"LinkedIn answered {r.status_code}: {r.text[:300]}"
+    low = r.text.lower()
+    if "client" in low and ("authentication" in low or "invalid_client" in low or "unauthorized" in low) or r.status_code in (401, 403):
+        return "BAD KEYS: LinkedIn does not accept this Client ID / Client Secret pair. Re-copy both from the Auth tab (Primary Client Secret) and press Save.", raw
+    if "redirect" in low:
+        return "RETURN ADDRESS: LinkedIn is unhappy about the return address. It must be added on the Auth tab exactly as shown above.", raw
+    return "The Client ID and Secret look accepted (LinkedIn only complained about the fake code, as expected).", raw

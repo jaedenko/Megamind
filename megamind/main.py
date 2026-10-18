@@ -166,6 +166,17 @@ def setup_status(request: Request):
             "awaiting": one("SELECT count(*) AS n FROM posts WHERE status IN ('draft','emailed','approved')")["n"],
             "next_run": one("SELECT min(next_run) AS t FROM schedules WHERE active")["t"], "last_posted": one("SELECT max(published_at) AS t FROM posts")["t"]}
 
+@app.post("/test/linkedin_app")
+def test_linkedin_app(request: Request):
+    cfg = config.load()
+    if not (cfg("LINKEDIN_CLIENT_ID") and cfg("LINKEDIN_CLIENT_SECRET")):
+        return {"ok": False, "message": "Save your Client ID and Client Secret first."}
+    try:
+        verdict, raw = social.check_app(cfg, site_base(request) + "linkedin/callback")
+    except Exception as e:
+        return {"ok": False, "message": str(e)[:300]}
+    return {"ok": not verdict.startswith(("BAD", "RETURN")), "message": verdict + "  [" + raw + "]"}
+
 @app.post("/test/{what}")
 def test_connection(what: str):
     """One-click checks used by the Settings page. Every check is free (no post is made)."""
@@ -210,10 +221,12 @@ def remove_site(url: str):  # sites set in Vercel can only be removed there
     return {"ok": True}
 
 @app.get("/linkedin/connect")
-def linkedin_connect(request: Request):
+def linkedin_connect(request: Request, preview: bool = False):
     cfg = config.load()
     if not (cfg("LINKEDIN_CLIENT_ID") and cfg("LINKEDIN_CLIENT_SECRET")):
         raise HTTPException(400, "Save your LinkedIn Client ID and Client Secret in Settings first.")
+    if preview:  # show exactly what would be sent, without starting a sign-in
+        return {"url": social.auth_url(cfg("LINKEDIN_CLIENT_ID"), site_base(request) + "linkedin/callback", "preview")}
     state = secrets.token_urlsafe(24)
     with connect() as db:
         db.execute("INSERT INTO settings VALUES('li_state', %s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (f"{state}|{time.time()}",))

@@ -416,6 +416,11 @@ function linkedinExtra(card, fields) {
   else if (s.linkedin && s.linkedin_expires) { const days = Math.round((new Date(s.linkedin_expires) - Date.now()) / 86400e3); row.append(el("span", days > 0 ? "Connected. About " + days + " days left." : "The connection has expired. Press Reconnect.", days > 7 ? "ok" : "bad")); }
   else if (s.linkedin) row.append(el("span", "A token is saved.", "ok"));
   card.append(row);
+  const dbg = el("details"); dbg.append(el("summary", "Still failing? Check my setup"));
+  const out = el("p", "", "hint"), b1 = el("button", "Check my Client ID and Secret", "small"), b2 = el("button", "Show the sign-in address Megamind uses", "small");
+  b1.onclick = async () => { out.textContent = "Asking LinkedIn..."; const j = await (await post("/test/linkedin_app")).json(); out.textContent = j.message; out.className = "hint " + (j.ok ? "ok" : "bad"); };
+  b2.onclick = async () => { const r = await fetch("/linkedin/connect?preview=true"), j = await r.json(); out.replaceChildren(); out.className = "hint"; out.append(r.ok ? el("code", j.url) : el("span", j.detail, "bad")); };
+  dbg.append(b1, " ", b2, out); card.append(dbg);
 }
 function checking(card) {
   const s = STATUS, fresh = s.last_check && Date.now() - new Date(s.last_check) < 36 * 3600e3;

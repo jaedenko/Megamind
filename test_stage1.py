@@ -396,6 +396,12 @@ def test_linkedin_sign_in_flow_and_expiry_reminder():
     r = c.get("/linkedin/connect", headers=ok); loc = urlparse(r.headers["location"]); q_ = parse_qs(loc.query)
     assert r.status_code in (302, 307) and loc.netloc == "www.linkedin.com" and q_["client_id"] == ["cid"] and q_["scope"] == ["openid profile w_member_social"]
     assert q_["redirect_uri"][0].endswith("/linkedin/callback"); state = q_["state"][0]
+    assert "scope=openid%20profile%20w_member_social" in r.headers["location"] and "+" not in loc.query  # spaces as %20, never '+'
+    pv = c.get("/linkedin/connect?preview=true", headers=ok).json()["url"]; assert "state=preview" in pv and "client_id=cid" in pv
+    social.httpx.post = lambda url, **kw: type("R", (), {"status_code": 401, "text": '{"error":"invalid_client_id","error_description":"Client authentication failed"}'})()
+    chk = c.post("/test/linkedin_app", headers=ok).json(); assert chk["ok"] is False and "BAD KEYS" in chk["message"] and "Client authentication failed" in chk["message"]
+    social.httpx.post = lambda url, **kw: type("R", (), {"status_code": 400, "text": '{"error":"invalid_request","error_description":"authorization code not found"}'})()
+    assert c.post("/test/linkedin_app", headers=ok).json()["ok"] is True  # keys accepted, only the fake code was refused
     assert c.get("/linkedin/callback?code=abc&state=forged").status_code == 400  # callback needs no password but needs YOUR one-time state
     assert "expired" in c.get("/linkedin/callback?code=abc&state=forged").text
     assert "said: access_denied" not in c.get("/linkedin/callback?error=access_denied&error_description=You+cancelled").text and "You cancelled" in c.get("/linkedin/callback?error=access_denied&error_description=You+cancelled").text
