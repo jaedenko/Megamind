@@ -160,7 +160,7 @@ def tick():
         cfg, out, now = config.load(), {}, datetime.now(timezone.utc)
         db.execute("INSERT INTO settings VALUES('last_tick', %s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now.isoformat(),))
         steps = [("drafted", lambda: _schedules(db, cfg, now)), ("resent", lambda: _resend(db, cfg)),
-                 ("replies", lambda: _replies(db, cfg)), ("posted", lambda: _post_approved(db, cfg)), ("reminders", lambda: _reminders(db, cfg, now))]
+                 ("replies", lambda: _replies(db, cfg)), ("posted", lambda: _post_approved(db, cfg)), ("reminders", lambda: _reminders(db, cfg, now)), ("tidied", lambda: _tidy(db, cfg))]
         for name, f in steps:
             try: out[name] = f()
             except Exception as e: out[name] = f"error: {e!r}"[:300]
@@ -193,6 +193,16 @@ def _replies(db, cfg):
 
 def _post_approved(db, cfg):
     return sum(post_now(db, cfg, p) == "published" for p in db.execute("SELECT * FROM posts WHERE status='approved'").fetchall())
+
+def _tidy(db, cfg):
+    """Trash the mails of finished posts after 2 days to keep the inbox clear (not sooner: the Done email holds the X text to paste)."""
+    if not mail.configured(cfg): return 0
+    rows = db.execute("SELECT id FROM posts WHERE status IN ('published','rejected') AND created < now() - interval '2 days' "
+                      "AND NOT history @> '[{\"t\":\"tidied\"}]'::jsonb").fetchall()
+    for r in rows:
+        mail.trash(cfg, r["id"])
+        db.execute("UPDATE posts SET history = history || %s::jsonb WHERE id=%s", (json.dumps([{"t": "tidied"}]), r["id"]))
+    return len(rows)
 
 def _reminders(db, cfg, now):
     """One email, a week before the LinkedIn connection runs out."""

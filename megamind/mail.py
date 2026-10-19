@@ -47,3 +47,14 @@ def poll(cfg, handle):
                        "subject": str(make_header(decode_header(msg["Subject"] or ""))),
                        "refs": f'{msg["In-Reply-To"] or ""} {msg["References"] or ""}', "text": _text(msg)}):
                 im.store(num, "+FLAGS", "\\Seen")
+
+def trash(cfg, post_id):
+    """Move every mail for one post (drafts, replies, sent copies) to Gmail's Trash (kept 30 days, then Gmail deletes it).
+    ponytail: Gmail folder names; another provider needs its own Trash name."""
+    with imaplib.IMAP4_SSL(cfg("IMAP_HOST", "imap.gmail.com"), 993, timeout=30) as im:
+        im.login(cfg("MAIL_USER"), cfg("MAIL_PASSWORD"))
+        for box in ("INBOX", '"[Gmail]/Sent Mail"'):
+            if im.select(box)[0] != "OK": continue
+            for num in im.search(None, "SUBJECT", f'"[Megamind post-{post_id}-"')[1][0].split():
+                im.copy(num, '"[Gmail]/Trash"'); im.store(num, "+FLAGS", "\\Deleted")
+            im.expunge()
