@@ -8,13 +8,23 @@ LI_MAX = 3000
 X_LIMIT = 280  # X posts are never sent by Megamind: you copy the X text from the email, so this is only a length hint
 APPROVE = {"y", "yes", "yep", "yeah", "ok", "okay", "approve", "approved", "lgtm", "post", "post it", "ship it", "send it", "go", "go ahead"}
 DECLINE = {"n", "no", "nope", "nah"}
+CANCEL = {"c", "cancel", "cancelled", "canceled"}
+NEWTOPIC = re.compile(r"(?i)\b(topic|different project|another project|new project|something else)\b")  # ponytail: keyword match, swap for an LLM intent check if it misfires
 
 def classify(text):
     """Approval is deliberately strict: the whole reply must be a bare yes / thumbs-up. 'yes but shorten it' is feedback, not approval."""
     t = re.sub(r"[\U0001F3FB-\U0001F3FF\uFE0F\s.!]+", "", text.lower())
     if t and set(t) == {"\U0001F44D"} or re.sub(r"[.!]", "", text.lower()).strip() in APPROVE: return "approve"
+    if t in CANCEL: return "cancel"
     if t in DECLINE or (t and set(t) == {"\U0001F44E"}): return "no"
     return "feedback"
+
+def _named(db, text):
+    """Project whose name appears in the text, else None (draft() then auto-picks the least recently posted)."""
+    return next((r["id"] for r in db.execute("SELECT id, name FROM projects").fetchall() if r["name"] and r["name"].lower() in text.lower()), None)
+
+def _reject(db, post, why):
+    db.execute("UPDATE posts SET status='rejected', history = history || %s::jsonb WHERE id=%s", (json.dumps([{"t": "reply", "text": why}]), post["id"]))
 
 def _ctx(db, project_id):
     p = db.execute("SELECT name, summary FROM projects WHERE id=%s", (project_id,)).fetchone()
@@ -46,7 +56,7 @@ def _email(db, cfg, post):
     body = (f"Megamind draft #{post['id']}, version {n}. Project: {p['name']}\n\n=== LinkedIn ({len(post['body'])}/{LI_MAX}) ===\n{post['body']}\n\n"
             f"=== X post (you copy and paste this one yourself) ({len(post['x_body'])}/{lim}){'  <-- OVER THE LIMIT, ask me to shorten it' if over else ''} ===\n{post['x_body']}\n\n"
             "----------------------------------------\nReply to this email:\n"
-            "  Y (or a thumbs-up)  ->  post the LinkedIn post now (I'll email you the X text again to paste)\n  N                    ->  I'll write a fresh version\n"
+            "  Y (or a thumbs-up)  ->  post the LinkedIn post now (I'll email you the X text again to paste)\n  N                    ->  I'll write a fresh version\n  C (or cancel)        ->  cancel this post, nothing goes out\n  \"new topic: ___\"      ->  a brand new post on that topic\n"
             "  anything else        ->  your edit notes (\"shorter\", \"lead with the results\"), or paste a complete replacement and I'll use it\n"
             "Nothing is posted until you reply Y. I never post to X; that one is yours to paste.\n")
     last = next((h["id"] for h in reversed(post["history"]) if h["t"] == "sent"), None)
@@ -125,6 +135,11 @@ def handle_reply(db, cfg, msg):
         if kind == "approve":
             db.execute("UPDATE posts SET status='approved', history = history || %s::jsonb WHERE id=%s", (json.dumps([{"t": "reply", "text": "Y"}]), post["id"]))
             post_now(db, cfg, db.execute("SELECT * FROM posts WHERE id=%s", (post["id"],)).fetchone())
+        elif kind == "cancel":
+            _reject(db, post, "C (cancelled)")
+            mail.send(cfg, "Megamind: post cancelled", f"Draft #{post['id']} is cancelled. Nothing was posted.\n")
+        elif NEWTOPIC.search(text):  # a new topic is a new draft (own project + angle), not an edit of this one
+            draft(db, cfg, _named(db, text), text); _reject(db, post, text[:2000])
         else:
             post = revise(db, cfg, post, "Not this one. Write a fresh version with a different angle." if kind == "no" else text)
             _email(db, cfg, post)
