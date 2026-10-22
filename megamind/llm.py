@@ -1,4 +1,4 @@
-import json, re
+import json, re, time
 import httpx
 from . import config
 
@@ -25,16 +25,22 @@ def on(cfg=None):
     cfg = cfg or config.load()
     return bool(cfg("LLM_API_KEY") or cfg("OPENCODE_API_KEY") or cfg("ANTHROPIC_API_KEY"))
 
+def _post(*a, **k):
+    for i in range(4):  # ponytail: fixed 2/4/8s waits; busy providers (503/429) usually clear in seconds
+        r = httpx.post(*a, **k)
+        if r.status_code not in (429, 500, 502, 503, 504) or i == 3: return r
+        time.sleep(2 ** (i + 1))
+
 def ask(prompt, cfg=None):
     """One text-in/text-out call to whichever provider is configured."""
     s = settings(cfg or config.load())
     if not s: raise RuntimeError("No AI provider key set (Settings > AI provider)")
     if not s["model"]: raise RuntimeError("Set the model name in Settings > AI provider (see your provider's model list)")
     if s["fmt"] == "anthropic":
-        r = httpx.post(s["base"] + "/v1/messages", timeout=120, headers={"x-api-key": s["key"], "anthropic-version": "2023-06-01"},
+        r = _post(s["base"] + "/v1/messages", timeout=120, headers={"x-api-key": s["key"], "anthropic-version": "2023-06-01"},
                        json={"model": s["model"], "max_tokens": 8000, "messages": [{"role": "user", "content": prompt}]})
         return r.raise_for_status().json()["content"][0]["text"]
-    r = httpx.post(s["base"] + "/chat/completions", timeout=120, headers={"Authorization": "Bearer " + s["key"]},
+    r = _post(s["base"] + "/chat/completions", timeout=120, headers={"Authorization": "Bearer " + s["key"]},
                    json={"model": s["model"], "messages": [{"role": "user", "content": prompt}]})
     return r.raise_for_status().json()["choices"][0]["message"]["content"] or ""
 
