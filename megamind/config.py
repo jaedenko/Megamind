@@ -31,6 +31,8 @@ def save(values):
             if name not in FIELDS: raise KeyError(name)
             if v is None: db.execute("DELETE FROM settings WHERE key=%s", ("cfg:" + name,))
             elif str(v).strip(): db.execute("INSERT INTO settings VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET value=excluded.value", ("cfg:" + name, str(v).strip()))
+        if any(n.startswith("LLM_") and v is not None and str(v).strip() or n.startswith("LLM_") and v is None for n, v in values.items()):
+            db.execute("DELETE FROM settings WHERE key='llm_cooldown'")  # new model/provider/key: give it a fresh start
 
 def cron_key():
     """A private random key, made on first use, that lets a free pinger call /cron/tick?key=... without the site password."""
