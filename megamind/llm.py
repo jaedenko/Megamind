@@ -25,11 +25,31 @@ def on(cfg=None):
     cfg = cfg or config.load()
     return bool(cfg("LLM_API_KEY") or cfg("OPENCODE_API_KEY") or cfg("ANTHROPIC_API_KEY"))
 
+COOLDOWN = 600  # seconds to leave a rate-limited provider alone
+
+def _cooling():
+    """Seconds left on the provider cooldown (0 = go ahead). Kept in the settings table so every cron tick sees it."""
+    from .db import connect
+    with connect() as db:
+        r = db.execute("SELECT EXTRACT(EPOCH FROM (value::timestamptz - now())) AS secs_left FROM settings WHERE key='llm_cooldown'").fetchone()
+    return max(0, int(r["secs_left"])) if r and r["secs_left"] else 0
+
+def _cool_down(seconds):
+    from .db import connect
+    with connect() as db:
+        db.execute("INSERT INTO settings VALUES('llm_cooldown', (now() + make_interval(secs => %s))::text) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (seconds,))
+
 def _post(*a, **k):
-    for i in range(4):  # ponytail: fixed 2/4/8s waits; busy providers (503/429) usually clear in seconds
+    if left := _cooling(): raise RuntimeError(f"AI provider is rate-limited (429/503); not retrying for another {left}s")
+    for i in range(3):  # ponytail: short waits only; a quota 429 won't clear in seconds, so on the last failure we back off for minutes instead
         r = httpx.post(*a, **k)
-        if r.status_code not in (429, 500, 502, 503, 504) or i == 3: return r
-        time.sleep(2 ** (i + 1))
+        if r.status_code not in (429, 500, 502, 503, 504): return r
+        if i == 2: break
+        time.sleep(min(float(r.headers.get("retry-after") or 2 ** (i + 1)), 10))
+    try: wait = min(max(float(r.headers.get("retry-after") or 0), COOLDOWN), 3600)
+    except ValueError: wait = COOLDOWN
+    _cool_down(wait)
+    return r
 
 def ask(prompt, cfg=None):
     """One text-in/text-out call to whichever provider is configured."""
