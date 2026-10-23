@@ -111,7 +111,8 @@
   <div class="card">
     <h2>3. Everything collected <span id="filter" class="mute"></span></h2>
     <p class="hint">Don't want something used in posts? Press <b>Ignore</b>. You can bring it back any time.</p>
-    <div class="row"><div><input type="search" id="search" placeholder="Search your items"></div><button id="toggleIgn">Show ignored</button></div>
+    <div class="row"><div><input type="search" id="search" placeholder="Search by topic, e.g. robot game camera. Press Enter to also look for related words"></div><button id="toggleIgn">Show ignored</button></div>
+    <div id="alsoSearched" class="hint"></div>
     <div id="items"></div>
   </div>
 </section>
@@ -284,10 +285,12 @@ async function loadProjects() {
   }
 }
 
-async function loadItems() {
+async function loadItems(smart) {
   const s = $("#search").value.trim(), qs = new URLSearchParams();
   if (s) qs.set("search", s); if (project) qs.set("project", project); if (showIgnored) qs.set("ignored", "true");
-  const rows = await (await fetch("/items?" + qs)).json(), box = $("#items"); box.replaceChildren();
+  if (smart === true) qs.set("smart", "true");
+  const resp = await fetch("/items?" + qs), rows = await resp.json(), box = $("#items"); box.replaceChildren();
+  $("#alsoSearched").textContent = resp.headers.get("X-Searched-Also") ? "Also looked for: " + resp.headers.get("X-Searched-Also") : "";
   if (!rows.length) box.append(el("p", showIgnored ? "Nothing ignored." : "Nothing here yet. Connect a source above and press Update.", "mute"));
   for (const it of rows.slice(0, 200)) {
     const d = el("div", null, "item"), a = el("a", it.title || it.url); if (it.url) { a.href = it.url; a.target = "_blank"; a.rel = "noopener"; }
@@ -313,7 +316,8 @@ $("#cluster").onclick = async (e) => {
   loadProjects(); loadItems();
 };
 $("#toggleIgn").onclick = (e) => { showIgnored = !showIgnored; e.target.textContent = showIgnored ? "Show items" : "Show ignored"; loadItems(); };
-let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(loadItems, 250); };
+let timer; $("#search").oninput = () => { clearTimeout(timer); timer = setTimeout(() => loadItems(), 250); };
+$("#search").onkeydown = (e) => { if (e.key === "Enter") { clearTimeout(timer); loadItems(true); } };
 
 /* ---------- posts ---------- */
 function fillSelects() {

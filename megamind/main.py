@@ -1,9 +1,9 @@
 import base64, html, os, secrets, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
-from . import cluster, config, embed, llm, posts, social, sync
+from . import cluster, config, embed, llm, posts, search as finder, social, sync
 from .connectors.website import Website
 from .connectors import CONNECTORS
 from .db import COLS, connect, q, set_ignored
@@ -65,8 +65,8 @@ def group():
     raise HTTPException(400, "Add an AI provider key in Settings (or a VOYAGE_API_KEY in Vercel), then try again.")
 
 @app.get("/items")
-def items(source: str | None = None, search: str | None = None, project: int | None = None, ignored: bool = False):
-    p = {"s": source, "j": project, "ig": ignored, "q": search, "like": f"%{search}%" if search else None}
+def items(response: Response, source: str | None = None, search: str | None = None, project: int | None = None, ignored: bool = False, smart: bool = False):
+    p = {"s": source, "j": project, "ig": ignored, "q": search}
     where = "(%(s)s::text IS NULL OR source=%(s)s) AND (%(j)s::int IS NULL OR project_id=%(j)s) AND (ignored IS TRUE) = %(ig)s"
     if search and embed.on():
         try:  # meaning-based order; exact keyword hits float to the top, un-embedded items sink
@@ -75,8 +75,14 @@ def items(source: str | None = None, search: str | None = None, project: int | N
                      "embedding <=> %(v)s::vector NULLS LAST LIMIT 50", p)
         except Exception:
             pass  # Voyage down: fall back to keyword
-    kw = " AND (%(q)s::text IS NULL OR fts @@ websearch_to_tsquery('english', %(q)s) OR title ILIKE %(like)s OR description ILIKE %(like)s)"
-    return q(f"SELECT {COLS} FROM items WHERE {where}{kw} ORDER BY ts_rank(fts, websearch_to_tsquery('english', coalesce(%(q)s,''))) DESC, date DESC NULLS LAST LIMIT 500", p)
+    if not search or not finder.words(search):
+        return q(f"SELECT {COLS} FROM items WHERE {where} ORDER BY date DESC NULLS LAST LIMIT 500", p)
+    with connect() as db:
+        also = []
+        if smart and llm.on():  # Enter pressed: also look for related words (synonyms, tools, your project names); typing alone stays instant
+            also = finder.expand(search, [r["name"] for r in db.execute("SELECT name FROM projects WHERE name IS NOT NULL").fetchall()])
+        if also: response.headers["X-Searched-Also"] = ", ".join(also)
+        return finder.find(db, search, where, p, also, 200)
 
 @app.get("/projects")
 def projects():

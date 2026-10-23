@@ -83,6 +83,7 @@ def test_llm_works_with_any_provider_key():
     from megamind import config, llm
     seen = []
     class R:
+        status_code, headers, text = 200, {}, ""
         def __init__(s, j): s.j = j
         def raise_for_status(s): return s
         def json(s): return s.j
@@ -434,7 +435,7 @@ def test_cron_endpoint_auth_and_settings_and_posts_endpoints():
     c, ok = TestClient(app), {"Authorization": "Basic " + base64.b64encode(b"me:pw").decode()}
     assert c.get("/cron/tick").status_code == 401  # no secret configured: only the password works
     os.environ["CRON_SECRET"] = "s3cret"
-    assert c.get("/cron/tick", headers={"Authorization": "Bearer s3cret"}).json() == {"drafted": 0, "resent": 0, "replies": 0, "posted": 0, "reminders": 0}
+    assert c.get("/cron/tick", headers={"Authorization": "Bearer s3cret"}).json() == {"drafted": 0, "resent": 0, "replies": 0, "posted": 0, "reminders": 0, "tidied": 0}
     assert c.get("/cron/tick", headers={"Authorization": "Bearer nope"}).status_code == 401
     assert c.get("/sync", headers={"Authorization": "Bearer s3cret"}).status_code == 401  # the cron secret opens only /cron/tick
     del os.environ["CRON_SECRET"]
@@ -464,6 +465,25 @@ def test_cron_endpoint_auth_and_settings_and_posts_endpoints():
     c.post(f"/posts/{posts_json[0]['id']}/discard", headers=ok); assert c.get("/posts", headers=ok).json()[0]["status"] == "rejected"
     d = db.connect(); d.execute("DELETE FROM posts"); d.commit(); d.close()
     assert c.post("/posts", json={}, headers=ok).status_code == 400  # no AI key / no projects: a clear error, not a crash
+
+def test_search_is_forgiving_and_names_projects_loosely():
+    from megamind import db, search, posts
+    d = db.connect()
+    d.execute("TRUNCATE items, projects, posts RESTART IDENTITY CASCADE")
+    d.execute("INSERT INTO projects(name, summary) VALUES('Battle Mashup', 'Fortnite-style game'), ('Into the Deep', 'Robot game with camera views')")
+    d.execute("INSERT INTO items(source, ext_id, title, description, project_id, tags) VALUES('github','a','Fortnite clone repo','Three.js battle royale',1,'{game}'),"
+              "('github','b','index_optimized.html','Robot swims, first person and chase camera',2,'{robot}'),('notion','c','Groceries','milk eggs',NULL,'{}')")
+    d.commit()
+    titles = lambda q, **k: [r["title"] for r in search.find(d, q, **k)]
+    assert titles("robot game camera") == ["index_optimized.html"]  # loose words, any order
+    assert titles("the robot thing") == ["index_optimized.html"]  # filler words are ignored
+    assert titles("battle mashup") == ["Fortnite clone repo"]  # a project's name finds its items
+    assert titles("quantum banana") == []  # nothing relevant means nothing, not junk
+    assert titles("my robot thing", extra=["chase"]) == ["index_optimized.html"]  # related words only add
+    if db.TRGM: assert titles("kamera views") == ["index_optimized.html"]  # near-miss spelling
+    assert posts._named(d, "new topic: my robot game") == 2 and posts._named(d, "Battle Mashup please") == 1
+    assert posts._named(d, "quantum banana") is None  # no clear winner -> no project, the draft is about the text alone
+    d.execute("TRUNCATE items, projects RESTART IDENTITY CASCADE"); d.commit(); d.close()
 
 if __name__ == "__main__":
     for n, f in list(globals().items()):
