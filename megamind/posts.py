@@ -33,8 +33,18 @@ def _ctx(db, project_id):
                        "ORDER BY date DESC NULLS LAST LIMIT 15", (project_id,)).fetchall()
     return p, items
 
+# What made the owner's most successful post work (a debugging story: cron + 429 retry loop): a specific problem, the concrete fix,
+# and one short line worth quoting. It drew comments from engineers, so every post follows the same shape.
+STYLE = ("LinkedIn post shape: (1) open with the one specific thing that broke, was hard or had to be decided, in plain words, no greeting or hype; "
+         "(2) say what you found and did about it with concrete details taken from the data (numbers, parts, tools, what you tried); "
+         "(3) end the story with one short standalone line that states the lesson in a way worth quoting, with no 'lesson learned:' label; "
+         "(4) then the hashtags. Use short paragraphs, no bullet lists of specs, no emoji. If it fits naturally, a question to other builders may sit just before the hashtags. "
+         "If the data holds no real problem or decision, tell what was built and the choice behind it; never invent a problem, a number or a lesson the data does not support. "
+         "Hashtags name the technologies and topics actually involved, not generic ones. "
+         "X post shape: the problem and the fix or lesson in two or three short sentences, then the hashtags. ")
+
 def _rules(cfg):
-    return (f"Write in first person as the builder, plain and specific, no hype. LinkedIn post: under 1500 characters, ending with 3 to 5 relevant hashtags. "
+    return (f"Write in first person as the builder, plain and specific, no hype. {STYLE}LinkedIn post: under 1500 characters, ending with 3 to 5 relevant hashtags. "
             f"X post: at most {X_LIMIT - 10} characters including 2 to 3 relevant hashtags at the end. "
             "No links unless the owner asks for one; then use the GITHUB url from the data exactly and never invent a URL. Reply with JSON only: "
             '{"linkedin": "...", "x": "..."}')
