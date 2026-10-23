@@ -34,9 +34,10 @@ CREATE TABLE IF NOT EXISTS schedules(id SERIAL PRIMARY KEY, project_id INT REFER
 COLS = "id, source, type, title, description, date, url, media, tags, metadata, project_id, edited, ignored"
 _ready = False
 VECTOR = False  # True once pgvector + items.embedding exist
+TRGM = False    # True once pg_trgm exists (typo-tolerant search)
 
 def connect():
-    global _ready, VECTOR
+    global _ready, VECTOR, TRGM
     # Vercel's Neon integration sets DATABASE_URL (and POSTGRES_URL). prepare_threshold=None keeps Neon's pooler happy.
     db = psycopg.connect(os.environ.get("DATABASE_URL") or os.environ["POSTGRES_URL"],
                          row_factory=dict_row, prepare_threshold=None)
@@ -46,6 +47,10 @@ def connect():
             db.execute("SELECT pg_advisory_xact_lock(7002); CREATE EXTENSION IF NOT EXISTS vector; "
                        "ALTER TABLE items ADD COLUMN IF NOT EXISTS embedding vector(1024)")
             db.commit(); VECTOR = True
+        except psycopg.Error:
+            db.rollback()
+        try:
+            db.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm"); db.commit(); TRGM = True
         except psycopg.Error:
             db.rollback()
         _ready = True
